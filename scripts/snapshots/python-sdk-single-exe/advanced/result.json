@@ -253,7 +253,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 46216,
+          "bytes": 46391,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -484,7 +484,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 47213,
+          "bytes": 47388,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -686,7 +686,7 @@
           "index": 0,
           "id": "advanced-code",
           "name": "run_code",
-          "argumentsDelta": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+          "argumentsDelta": "{\"code\": \"inspect(await tools.snapshot_double({ value: 21 }))\", \"description\": \"Run the temporary Plugin tool\"}"
         }
       }
     },
@@ -704,7 +704,7 @@
             "type": "tool-call",
             "id": "advanced-code",
             "name": "run_code",
-            "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+            "arguments": "{\"code\": \"inspect(await tools.snapshot_double({ value: 21 }))\", \"description\": \"Run the temporary Plugin tool\"}"
           }
         }
       }
@@ -753,7 +753,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 47901,
+          "bytes": 48076,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -799,7 +799,7 @@
               "type": "tool-call",
               "id": "advanced-code",
               "name": "run_code",
-              "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+              "arguments": "{\"code\": \"inspect(await tools.snapshot_double({ value: 21 }))\", \"description\": \"Run the temporary Plugin tool\"}"
             }
           ],
           "source": {
@@ -832,7 +832,7 @@
         "step": 3,
         "callId": "advanced-code",
         "name": "run_code",
-        "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+        "arguments": "{\"code\": \"inspect(await tools.snapshot_double({ value: 21 }))\", \"description\": \"Run the temporary Plugin tool\"}"
       }
     },
     {
@@ -889,7 +889,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "42"
+                  "text": "42\n"
                 }
               ],
               "isError": false
@@ -1015,7 +1015,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 48216,
+          "bytes": 48395,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -1324,7 +1324,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 49059,
+          "bytes": 49238,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -1591,7 +1591,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 49652,
+          "bytes": 49831,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -1850,7 +1850,7 @@
         "url": "{{modelUrl}}/chat/completions",
         "method": "POST",
         "request": {
-          "bytes": 49554,
+          "bytes": 49733,
           "fingerprint": "{{fingerprint}}",
           "parameters": {
             "model": "smoke-model",
@@ -2286,7 +2286,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 46216,
+              "bytes": 46391,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -2583,7 +2583,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 47213,
+              "bytes": 47388,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -2833,7 +2833,7 @@
               "index": 0,
               "id": "advanced-code",
               "name": "run_code",
-              "argumentsDelta": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+              "argumentsDelta": "{\"code\": \"inspect(await tools.snapshot_double({ value: 21 }))\", \"description\": \"Run the temporary Plugin tool\"}"
             }
           }
         }
@@ -2857,7 +2857,7 @@
                 "type": "tool-call",
                 "id": "advanced-code",
                 "name": "run_code",
-                "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+                "arguments": "{\"code\": \"inspect(await tools.snapshot_double({ value: 21 }))\", \"description\": \"Run the temporary Plugin tool\"}"
               }
             }
           }
@@ -2924,7 +2924,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 47901,
+              "bytes": 48076,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -2976,7 +2976,7 @@
                   "type": "tool-call",
                   "id": "advanced-code",
                   "name": "run_code",
-                  "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+                  "arguments": "{\"code\": \"inspect(await tools.snapshot_double({ value: 21 }))\", \"description\": \"Run the temporary Plugin tool\"}"
                 }
               ],
               "source": {
@@ -3015,7 +3015,7 @@
             "step": 3,
             "callId": "advanced-code",
             "name": "run_code",
-            "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+            "arguments": "{\"code\": \"inspect(await tools.snapshot_double({ value: 21 }))\", \"description\": \"Run the temporary Plugin tool\"}"
           }
         }
       }
@@ -3090,7 +3090,7 @@
                   "content": [
                     {
                       "type": "text",
-                      "text": "42"
+                      "text": "42\n"
                     }
                   ],
                   "isError": false
@@ -3264,7 +3264,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 48216,
+              "bytes": 48395,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -3714,7 +3714,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 46959,
+              "bytes": 47134,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -4143,7 +4143,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 49059,
+              "bytes": 49238,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -4642,7 +4642,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 46961,
+              "bytes": 47136,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -5002,7 +5002,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 49652,
+              "bytes": 49831,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",
@@ -5333,7 +5333,7 @@
             "url": "{{modelUrl}}/chat/completions",
             "method": "POST",
             "request": {
-              "bytes": 49554,
+              "bytes": 49733,
               "fingerprint": "{{fingerprint}}",
               "parameters": {
                 "model": "smoke-model",

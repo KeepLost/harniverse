@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用 `dsh-ptc-runtime` 执行调用宿主异步函数的模型程序。请求返回无损 JSON、捕获日志或结构化失败；Promise 拒绝表示调用方误用。提供方隔离不同状态所有者，并声明源码是异步函数体、REPL 语句还是脚本。`retainsState` 报告提供方是否为显式所有者保留内存，直到释放，但不会从 Session 恢复这些内存。语言与隔离描述符标识语法和执行基底，不提供安全保证。
+使用 `dsh-ptc-runtime` 执行调用宿主异步函数的模型程序。请求返回无损 JSON、有序输出片段或结构化失败；Promise 拒绝表示调用方误用。绑定返回值还可携带宿主签发的 `PtcImage` 值与 `PtcInspectableValue` 文本，请求也可丢弃完成值而不校验。提供方隔离不同状态所有者，并声明源码是异步函数体、REPL 语句还是脚本。`retainsState` 报告提供方是否为显式所有者保留内存，直到释放，但不会从 Session 恢复这些内存。语言与隔离描述符标识语法和执行基底，不提供安全保证。
 
 ## 目录
 
@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 运行一个程序
 
-传入程序和绑定命名空间，依次调用 `resolve(request)` 和 `run(spec)`。解析阶段验证 cwd、超时与沙盒选项，并应用提供方默认值。`programFormat: PtcProgramFormat` 选择支持顶层 `await`、`return` 的异步函数体，或支持顶层声明、`await` 和末尾表达式的 REPL/Script 语句。Node Script 提供方转换顶层 await 并等待完成值；其[声明限制](../ptc-runtime-node/README.md#known-limitations-and-deferred-work)适用于转换后的程序。无损 JSON 完成值进入 `result.value`，文本进入 `result.logs`，失败进入 `result.error`。
+传入程序和绑定命名空间，依次调用 `resolve(request)` 和 `run(spec)`。解析阶段验证 cwd、超时与沙盒选项，并应用提供方默认值。`programFormat: PtcProgramFormat` 选择支持顶层 `await`、`return` 的异步函数体，或支持顶层声明、`await` 和末尾表达式的 REPL/Script 语句。Node Script 提供方转换顶层 await 并等待完成值；其[声明限制](../ptc-runtime-node/README.md#known-limitations-and-deferred-work)适用于转换后的程序。无损 JSON 完成值进入 `result.value`，捕获文本与被检视图像进入有序的 `result.output` 片段列表，失败进入 `result.error`。
 
 ```text
 const spec = ctx.ptcRuntime.resolve({
@@ -80,7 +80,7 @@ binding-global 与 error-class 名称是语言可移植的：必须匹配 `[A-Za
 
 ### 词汇
 
-`PtcRunRequest` 携带程序、Host 绑定、取消和可选执行选择。`PtcRunSpec` 要求已解析的 cwd 和明确的数值或 null 截止选择。`PtcBindingNamespace` 声明程序全局对象与可选的类型化拒绝构造器。`PtcRunResult` 将日志／值、失败与 `PtcRunSandbox` 事实分开；确切字段与提供方义务见 [`src/types.ts`](src/types.ts)。
+`PtcRunRequest` 携带程序、Host 绑定、取消和可选执行选择。`PtcRunSpec` 要求已解析的 cwd 和明确的数值或 null 截止选择。`PtcBindingNamespace` 声明程序全局对象与可选的类型化拒绝构造器。`PtcRunResult` 将输出／值、失败与 `PtcRunSandbox` 事实分开；确切字段与提供方义务见 [`src/types.ts`](src/types.ts)。
 
 ### 可移植标识符
 
@@ -126,7 +126,7 @@ binding-global 与 error-class 名称是语言可移植的：必须匹配标识�
 
 这些限制说明 seam 不能做什么；它们是当前包约束，不是任务积压。
 
-- **`run()` 是一次性的**——`logs` 只有在 `PtcRunResult` resolve 后才能获得；seam 不提供正在运行的程序所产生输出的流式日志或进度接口。
+- **`run()` 是一次性的**——输出只有在 `PtcRunResult` resolve 后才能获得；seam 不提供正在运行的程序所产生输出的流式输出或进度接口。
 - **保留内存可以丢失**：提供方可以为显式所有者保留状态；重启、释放以及提供方指定的失败会清除状态。程序、绑定调用和结果仍由消费者记录；运行中的对象不会被序列化或回放。
 - **提供方的约束能力不同**——已发布 Node 提供方强制执行已解析文件策略，私有实验性 Python 提供方拒绝显式策略。不提供容器提供方。
 - **提供方之间没有统一的绑定字节上限**——各提供方负责自己的传输限制；绑定仍可能在结果到达这些限制前分配内存。

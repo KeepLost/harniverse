@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import { PtcInspectableValue, PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { PtcRunRequest, PtcRunResult, PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
 import ToolRuntime, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, JsonSchemaNode, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -29,7 +32,7 @@ class FakeRuntime extends PtcRuntime {
   }
   readonly language: string
   readonly isolation = 'fake'
-  behavior: (request: PtcRunRequest) => Promise<PtcRunResult> = () => Promise.resolve({ logs: [] })
+  behavior: (request: PtcRunRequest) => Promise<PtcRunResult> = () => Promise.resolve({ output: [] })
   lastRequest?: PtcRunRequest
 
   constructor(ctx: Context, config: { language?: string } = {}) {
@@ -252,8 +255,7 @@ describe('mode-aware wire contribution', () => {
     expect(sdk).not.toContain('hidden:')
 
     runtime.behavior = request => Promise.resolve({
-      logs: [],
-      value: Object.keys(request.bindings[0]!.functions).sort().join(','),
+      output: [{ type: 'text', text: Object.keys(request.bindings[0]!.functions).sort().join(',') }],
     })
     const result = await runCode(ctx, 'return Object.keys(tools)', { agent })
     expect(result.isError).toBe(false)
@@ -282,8 +284,7 @@ describe('mode-aware wire contribution', () => {
     expect(sdk).toContain('kept: {')
 
     runtime.behavior = request => Promise.resolve({
-      logs: [],
-      value: Object.keys(request.bindings[0]!.functions).sort().join(','),
+      output: [{ type: 'text', text: Object.keys(request.bindings[0]!.functions).sort().join(',') }],
     })
     const result = await runCode(ctx, 'return Object.keys(tools)', { agent })
     expect(result.isError).toBe(false)
@@ -347,13 +348,12 @@ describe('mode-aware wire contribution', () => {
       })
       const functions = request.bindings[0]!.functions
       return Promise.resolve({
-        logs: [],
-        value: JSON.stringify({
+        output: [{ type: 'text', text: JSON.stringify({
           names: Object.keys(functions).sort(),
           // Own-property AND prototype-chain reads both come back empty —
           // there is no handle a program could re-enter run_code through.
           runCode: String(functions[RUN_CODE_NAME]),
-        }),
+        }) }],
       })
     }
     const result = await runCode(ctx, 'program')
@@ -427,7 +427,7 @@ describe('mode-aware wire contribution', () => {
     const assembly = await systemPrompt.assemble()
     const runCodeSchema = assembly.tools.find(tool => tool.name === RUN_CODE_NAME)
     expect(runCodeSchema?.description).toContain('Execute a Python program')
-    expect(runCodeSchema?.description).toContain('`return <value>`')
+    expect(runCodeSchema?.description).toContain('`print(...)`')
     expect(runCodeSchema?.description).toContain('`description`')
     expect(runCodeSchema?.description).not.toContain('TypeScript')
     const codeParam = (runCodeSchema?.parameters as { properties: { code: { description: string } } }).properties.code
@@ -534,13 +534,13 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
       // All three must be START-able without any completion (overlap proof).
       await expect.poll(() => gated.pending()).toBe(3)
       gated.releaseAll()
-      return { logs: [], value: (await all).map(String).join(',') }
+      return { output: [{ type: 'text', text: (await all).map(String).join(',') }] }
     }
     const result = await runCode(ctx, 'program', { agent })
     expect(result.isError).toBe(false)
     expect(gated.peakLive()).toBe(3)
     if (result.isError) throw new Error('expected success')
-    expect(result.value).toMatchObject({ result: 'safe_read:a,safe_read:b,safe_read:c' })
+    expect(result.value).toMatchObject({ logs: ['safe_read:a,safe_read:b,safe_read:c'] })
     // One start per dispatch, paired with its settle by subCallId, starts in submission order.
     const starts = events.filter(event => event.type === 'tool/code-dispatch-start').map(event => event.data as { subCallId: string })
     const settles = events.filter(event => event.type === 'tool/code-dispatch').map(event => event.data as { subCallId: string })
@@ -568,7 +568,7 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
       await expect.poll(() => safe.pending()).toBe(1)
       safe.releaseAll()
       await Promise.all([...reads, write, tail])
-      return { logs: [], value: 'ordered' }
+      return { output: [{ type: 'text', text: 'ordered' }] }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
@@ -576,6 +576,33 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
     expect(unsafe.order).toEqual(['start:w', 'end:w'])
     // r3 started only after w ended.
     expect(safe.order.indexOf('start:r3')).toBeGreaterThan(safe.order.indexOf('end:r1'))
+  })
+
+  it('waits when slow durable settle events exceed the log-work cap', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code', maxParallelSubCalls: 2 })
+    const calls = registerEcho(ctx)
+    const events: { type: string; data?: unknown }[] = []
+    const gates: Array<() => void> = []
+    const agent = {
+      session: {
+        header: { cwd: '/workspace' },
+        append: () => new Promise<void>((resolve) => { gates.push(resolve); events.push({ type: 'logged' }) }),
+      },
+    } as unknown as Agent
+    runtime.behavior = async (request) => {
+      const tools = request.bindings[0]!.functions
+      await tools.echo!({ value: 'one' })
+      await tools.echo!({ value: 'two' })
+      await tools.echo!({ value: 'three' })
+      return { output: [] }
+    }
+    const pending = runCode(ctx, 'program', { agent })
+    // The ordered commit lane parks at the cap while the slow appends hold.
+    await vi.waitFor(() => { expect(gates.length).toBeGreaterThanOrEqual(2) })
+    for (const release of gates.splice(0)) release()
+    const result = await pending
+    expect(result.isError).toBe(false)
+    expect(calls).toHaveLength(3)
   })
 
   it('maxParallelSubCalls caps the overlap window', async () => {
@@ -595,7 +622,7 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
       await expect.poll(() => gated.pending()).toBe(2)
       gated.releaseAll()
       await all
-      return { logs: [], value: 'capped' }
+      return { output: [{ type: 'text', text: 'capped' }] }
     }
     const result = await runCode(ctx, 'program')
     if (result.isError) console.error('CAP-FAIL:', (result.content[0] as { text: string }).text)
@@ -626,12 +653,12 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
       dispose()
       const message = await request.bindings[0]!.functions.ephemeral!({})
         .then(() => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
-      return { logs: [], value: message }
+      return { output: [{ type: 'text', text: message }] }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected success')
-    expect(result.value).toMatchObject({ result: 'unknown tool "ephemeral"' })
+    expect(result.value).toMatchObject({ logs: ['unknown tool "ephemeral"'] })
     expect(calls).toEqual([])
   })
 
@@ -661,7 +688,7 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
       await expect.poll(() => gated.pending()).toBe(2)
       gated.releaseAll()
       await all
-      return { logs: [], value: 'ordered-prepare' }
+      return { output: [], value: 'ordered-prepare' }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
@@ -701,7 +728,7 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
       await expect.poll(() => reader.pending()).toBe(1)
       reader.releaseAll()
       await r
-      return { logs: [], value: 'barrier-through-commit' }
+      return { output: [{ type: 'text', text: 'barrier-through-commit' }] }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
@@ -727,7 +754,7 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
       gated.release()
       await expect.poll(() => releasePost !== undefined).toBe(true)
       queueMicrotask(() => { releasePost!() })
-      return { logs: [], value: 'returned-early' }
+      return { output: [{ type: 'text', text: 'returned-early' }] }
     }
     const result = await runCode(ctx, 'program', { agent })
     expect(result.isError).toBe(false)
@@ -767,7 +794,7 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
       gated.release() // releases a (FIFO gate) — invert: release twice reversed is not possible;
       gated.releaseAll()
       await all
-      return { logs: [], value: 'ordered-commit' }
+      return { output: [{ type: 'text', text: 'ordered-commit' }] }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
@@ -819,13 +846,13 @@ describe('the run_code dispatch bridge', () => {
       const first = await tools.echo!({ value: 'one' })
       const second = await tools.echo!({ value: 'two' })
       if (typeof first !== 'string' || typeof second !== 'string') throw new Error('echo returned a non-string')
-      return { logs: [`saw ${first}`], value: second }
+      return { output: [{ type: 'text', text: `saw ${first}` }, { type: 'text', text: second }] }
     }
     const result = await runCode(ctx, 'const …: string = …', { agent })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected run_code success')
-    expect(result.value).toEqual({ logs: ['saw echo:one'], result: 'echo:two' })
-    expect(result.content).toEqual([{ type: 'text', text: 'saw echo:one\necho:two' }])
+    expect(result.value).toEqual({ logs: ['saw echo:one', 'echo:two'] })
+    expect(result.content).toEqual([{ type: 'text', text: 'saw echo:oneecho:two' }])
     expect(calls).toEqual([{ value: 'one' }, { value: 'two' }])
     const dispatches = events.filter(event => event.type === 'tool/code-dispatch')
     expect(dispatches.map(event => event.data)).toEqual([
@@ -846,7 +873,7 @@ describe('the run_code dispatch bridge', () => {
     registerEcho(ctx)
     runtime.behavior = async (request) => {
       await request.bindings[0]!.functions.echo!({ value: 'nested' })
-      return { logs: [], value: 'done' }
+      return { output: [{ type: 'text', text: 'done' }] }
     }
 
     // Freeze the nested observer's parent correlation. If that were the live
@@ -885,7 +912,7 @@ describe('the run_code dispatch bridge', () => {
     }))
     runtime.behavior = async (request) => {
       await request.bindings[0]!.functions.finalize!({})
-      return { logs: [], value: 'program complete' }
+      return { output: [{ type: 'text', text: 'program complete' }] }
     }
 
     const concluded = await runCode(ctx, 'await tools.finalize({})')
@@ -900,7 +927,7 @@ describe('the run_code dispatch bridge', () => {
     })
     runtime.behavior = async (request) => {
       await request.bindings[0]!.functions.finalize!({}).catch(() => undefined)
-      return { logs: [], value: 'recovered' }
+      return { output: [{ type: 'text', text: 'recovered' }] }
     }
     const recovered = await runCode(ctx, 'await tools.finalize({}).catch(() => {})')
     veto()
@@ -934,7 +961,7 @@ describe('the run_code dispatch bridge', () => {
       const tools = request.bindings[0]!.functions
       const values = await Promise.all([tools.probe!({ id: 'a' }), tools.probe!({ id: 'b' }), tools.probe!({ id: 'c' })])
       if (!values.every(value => typeof value === 'string')) throw new Error('probe returned a non-string')
-      return { logs: [], value: values.join(',') }
+      return { output: [{ type: 'text', text: values.join(',') }] }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
@@ -957,9 +984,9 @@ describe('the run_code dispatch bridge', () => {
     runtime.behavior = async (request) => {
       try {
         await request.bindings[0]!.functions.fail!({})
-        return { logs: [], value: 'unreachable' }
+        return { output: [] }
       } catch (error: unknown) {
-        return { logs: [], value: `caught: ${error instanceof Error ? error.message : String(error)}` }
+        return { output: [{ type: 'text', text: `caught: ${error instanceof Error ? error.message : String(error)}` }] }
       }
     }
     const result = await runCode(ctx, 'program')
@@ -973,7 +1000,7 @@ describe('the run_code dispatch bridge', () => {
     const { agent, events } = fakeAgent()
     runtime.behavior = async (request) => {
       const value = await request.bindings[0]!.functions.echo!({ value: 'x' })
-      return { logs: [], value: value as string }
+      return { output: [], value: value as string }
     }
     const result = await runCode(ctx, 'program', { agent })
     expect(result.isError).toBe(false)
@@ -997,12 +1024,12 @@ describe('the run_code dispatch bridge', () => {
     runtime.behavior = async (request) => {
       const message = await request.bindings[0]!.functions.echo!({ value: 'x' })
         .then(() => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
-      return { logs: [], value: message }
+      return { output: [{ type: 'text', text: message }] }
     }
     const result = await runCode(ctx, 'program', { agent })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected success')
-    expect(result.value).toMatchObject({ result: 'gate exploded' })
+    expect(result.value).toMatchObject({ logs: ['gate exploded'] })
     // The pipeline failure is final: the body never ran and post-execute was
     // skipped, yet the settle event still carries the error outcome.
     expect(calls).toEqual([])
@@ -1022,9 +1049,9 @@ describe('the run_code dispatch bridge', () => {
     runtime.behavior = async (request) => {
       try {
         await request.bindings[0]!.functions.echo!({ value: 'x' })
-        return { logs: [], value: 'unreachable' }
+        return { output: [], value: 'unreachable' }
       } catch (error: unknown) {
-        return { logs: [], value: `denied: ${error instanceof Error ? error.message : String(error)}` }
+        return { output: [{ type: 'text', text: `denied: ${error instanceof Error ? error.message : String(error)}` }] }
       }
     }
     const result = await runCode(ctx, 'program')
@@ -1039,9 +1066,9 @@ describe('the run_code dispatch bridge', () => {
     runtime.behavior = async (request) => {
       try {
         await request.bindings[0]!.functions.echo!({ value: 'x', big: 1n })
-        return { logs: [], value: 'unreachable' }
+        return { output: [], value: 'unreachable' }
       } catch (error: unknown) {
-        return { logs: [], value: error instanceof Error ? error.message : String(error) }
+        return { output: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }] }
       }
     }
     const result = await runCode(ctx, 'program', { agent })
@@ -1057,7 +1084,7 @@ describe('the run_code dispatch bridge', () => {
     runtime.behavior = async (request) => {
       const args = Object.assign(Object.create(null) as Record<string, unknown>, { value: 'x', nested: ['same'] })
       await request.bindings[0]!.functions.echo!(args)
-      return { logs: [] }
+      return { output: [] }
     }
     await runCode(ctx, 'program', { agent })
     expect(calls).toEqual([{ value: 'x', nested: ['same'] }])
@@ -1083,7 +1110,7 @@ describe('the run_code dispatch bridge', () => {
     runtime.behavior = async (request) => {
       await request.bindings[0]!.functions.echo!({ value: 'x' })
       await request.bindings[0]!.functions.echo!({ value: 'y' })
-      return { logs: [], value: 'done' }
+      return { output: [{ type: 'text', text: 'done' }] }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
@@ -1116,7 +1143,7 @@ describe('the run_code dispatch bridge', () => {
     })
     runtime.behavior = async (request) => {
       await request.bindings[0]!.functions.echo!({ value: 'x' })
-      return { logs: [], error: { kind: 'exception', message: 'program failed later' } }
+      return { output: [], error: { kind: 'exception', message: 'program failed later' } }
     }
 
     const result = await runCode(ctx, 'program')
@@ -1133,7 +1160,7 @@ describe('the run_code dispatch bridge', () => {
   it('converts a failed run into a structured isError result carrying kind, message, and captured logs', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     runtime.behavior = () => Promise.resolve({
-      logs: ['got this far'],
+      output: [{ type: 'text', text: 'got this far' }],
       error: { kind: 'timeout', message: 'compute budget exhausted (300ms busy)' },
     })
     const result = await runCode(ctx, 'program')
@@ -1176,7 +1203,7 @@ describe('the run_code dispatch bridge', () => {
       await Promise.all(calls)
       // A real runtime would be terminated by the abort; the fake honors the
       // contract by reporting the abort as the run failure.
-      return { logs: [], error: { kind: 'abort', message: 'user-cancel' } }
+      return { output: [], error: { kind: 'abort', message: 'user-cancel' } }
     }
     const result = await runCode(ctx, 'program', { signal: controller.signal })
     expect(result.isError).toBe(true)
@@ -1225,7 +1252,7 @@ describe('the run_code dispatch bridge', () => {
     const calls = registerEcho(ctx)
     runtime.behavior = async (request) => {
       await request.bindings[0]!.functions.echo!({ value: 'x' })
-      return { logs: [], value: 'ok' }
+      return { output: [], value: 'ok' }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
@@ -1262,10 +1289,10 @@ describe('the run_code dispatch bridge', () => {
   })
 
   it.each([
-    ['logs only', { logs: ['printed'] }, 'printed'],
-    ['result only', { logs: [], value: 'returned' }, 'returned'],
-    ['logs plus result', { logs: ['printed'], value: 'returned' }, 'printed\nreturned'],
-    ['no output', { logs: [] }, '(run_code completed with no output)'],
+    ['printed logs', { output: [{ type: 'text', text: 'printed' }] }, 'printed'],
+    ['a discarded completion', { output: [], value: 'returned' }, '(run_code completed with no output)'],
+    ['logs beside a discarded completion', { output: [{ type: 'text', text: 'printed' }], value: 'returned' }, 'printed'],
+    ['no output', { output: [] }, '(run_code completed with no output)'],
   ] as [string, PtcRunResult, string][])('keeps %s in durable content without a result presenter', async (_name, output, text) => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     runtime.behavior = () => Promise.resolve(output)
@@ -1283,7 +1310,7 @@ describe('the run_code dispatch bridge', () => {
   it('keeps a post-policy spill preview in durable content without a result presenter', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const preview = 'HEAD\n\n(Omitted 100 bytes. Full formatted result stored at: /tmp/run-code.txt.)\n\nTAIL'
-    runtime.behavior = () => Promise.resolve({ logs: ['printed'], value: 'returned' })
+    runtime.behavior = () => Promise.resolve({ output: [{ type: 'text', text: 'printed' }], value: 'returned' })
     ctx.on('tools/post-execute', (exec, _result, next): Promise<PostToolDecision> => {
       if (exec.name !== RUN_CODE_NAME) return next()
       return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: preview }] })
@@ -1299,7 +1326,7 @@ describe('the run_code dispatch bridge', () => {
   it('keeps canonical failure content durable without a result presenter', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     runtime.behavior = () => Promise.resolve({
-      logs: ['captured before failure'],
+      output: [{ type: 'text', text: 'captured before failure' }],
       error: { kind: 'output-limit', message: 'outer output exceeded 8 bytes' },
     })
 
@@ -1317,7 +1344,7 @@ describe('the run_code dispatch bridge', () => {
   it('appends the truncation notice to a truncated run without failing it', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     runtime.behavior = () => Promise.resolve({
-      logs: ['kept prefix'],
+      output: [{ type: 'text', text: 'kept prefix' }],
       outputTruncated: true,
     })
 
@@ -1333,7 +1360,7 @@ describe('the run_code dispatch bridge', () => {
   it('appends the truncation notice beside a bounded failure diagnostic', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     runtime.behavior = () => Promise.resolve({
-      logs: [],
+      output: [],
       error: { kind: 'exception', message: 'boom' },
       outputTruncated: true,
     })
@@ -1368,7 +1395,8 @@ describe('the run_code dispatch bridge', () => {
     }))
     runtime.behavior = async (request) => {
       const value = await request.bindings[0]!.functions.mixed!({})
-      return { logs: [], value }
+      if (typeof value !== 'string') throw new Error('mixed returned a non-string')
+      return { output: [{ type: 'text', text: value }] }
     }
     const result = await runCode(ctx, 'program', { agent })
     expect(result.isError).toBe(false)
@@ -1388,8 +1416,7 @@ describe('the run_code dispatch bridge', () => {
       const echo = request.bindings[0]!.functions.echo!
       const catchMessage = (promise: Promise<unknown>) => promise.then(() => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
       return {
-        logs: [],
-        value: [
+        output: [{ type: 'text', text: [
           // Root undefined must reject up front: the event log rejects it as
           // data, and nothing may execute unlogged.
           await catchMessage(echo(undefined)),
@@ -1398,7 +1425,7 @@ describe('the run_code dispatch bridge', () => {
           await catchMessage(echo(new Date(0))),
           // A bare function is a value JSON cannot represent at all.
           await catchMessage(echo(() => 1)),
-        ].join(' | '),
+        ].join(' | ') }],
       }
     }
     const result = await runCode(ctx, 'program', { agent })
@@ -1442,13 +1469,13 @@ describe('the run_code dispatch bridge', () => {
       let nested: JsonValue = 'leaf'
       for (let index = 0; index < depth; index++) nested = [nested]
       const value = await request.bindings[0]!.functions.deep_args!({ nested })
-      return { logs: [], value }
+      return { output: [], value }
     }
 
     const result = await runCode(ctx, 'return tools.deep_args(...)', { agent })
 
     expect(result.isError).toBe(false)
-    expect(result.isError ? undefined : result.value).toEqual({ logs: [], result: depth })
+    expect(result.isError ? undefined : result.value).toEqual({ logs: [] })
     expect({ observedDepth, observedLeaf }).toEqual({ observedDepth: depth, observedLeaf: 'leaf' })
     const dispatch = session.events.find(event => event.type === 'tool/code-dispatch')
     if (dispatch === undefined) throw new Error('expected a durable tool/code-dispatch event')
@@ -1478,7 +1505,7 @@ describe('the run_code dispatch bridge', () => {
     }))
     runtime.behavior = async (request) => {
       await request.bindings[0]!.functions.mutator!({ list: ['original'] })
-      return { logs: [] }
+      return { output: [] }
     }
     const result = await runCode(ctx, 'program', { agent })
     expect(result.isError).toBe(false)
@@ -1503,55 +1530,234 @@ describe('the run_code dispatch bridge', () => {
       const functions = request.bindings[0]!.functions
       expect(Object.getPrototypeOf(functions)).toBeNull()
       const value = await functions['__proto__']!({})
-      return { logs: [], value }
+      if (typeof value !== 'string') throw new Error('__proto__ returned a non-string')
+      return { output: [{ type: 'text', text: value }] }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
     expect(result.content[0]).toEqual({ type: 'text', text: 'proto-tool-ok' })
   })
 
-  it('renders every non-string JSON root as pretty JSON while preserving strings raw', async () => {
+  it('adapts object-valued tool results into inspectable program values', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
-    runtime.behavior = () => Promise.resolve({ logs: [], value: { n: 42, ok: true } })
-    expect((await runCode(ctx, 'object')).content[0]).toEqual({ type: 'text', text: '{\n  "n": 42,\n  "ok": true\n}' })
-    runtime.behavior = () => Promise.resolve({ logs: [], value: {} })
-    expect((await runCode(ctx, 'empty object')).content[0]).toEqual({ type: 'text', text: '{}' })
-    const nested = { outer: [{ inner: true }] }
-    runtime.behavior = () => Promise.resolve({ logs: [], value: nested })
-    expect((await runCode(ctx, 'nested')).content[0]).toEqual({ type: 'text', text: JSON.stringify(nested, null, 2) })
-    runtime.behavior = () => Promise.resolve({ logs: [], value: ['x', 2] })
-    expect((await runCode(ctx, 'array')).content[0]).toEqual({ type: 'text', text: '[\n  "x",\n  2\n]' })
-    runtime.behavior = () => Promise.resolve({ logs: [], value: [] })
-    expect((await runCode(ctx, 'empty array')).content[0]).toEqual({ type: 'text', text: '[]' })
-    runtime.behavior = () => Promise.resolve({ logs: [], value: null })
-    expect((await runCode(ctx, 'null')).content[0]).toEqual({ type: 'text', text: 'null' })
-    runtime.behavior = () => Promise.resolve({ logs: [], value: 'raw' })
-    expect((await runCode(ctx, 'string')).content[0]).toEqual({ type: 'text', text: 'raw' })
-    runtime.behavior = () => Promise.resolve({ logs: [] })
-    const absent = await runCode(ctx, 'undefined')
-    expect(absent.content[0]).toEqual({ type: 'text', text: '(run_code completed with no output)' })
-    expect(absent.isError ? undefined : absent.value).toEqual({ logs: [] })
+    ctx.tools.register(defineTool({
+      name: 'structured',
+      description: 'Returns an object rendered as text.',
+      parameters: {},
+      output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: `rendered ${JSON.stringify(value)}` }] },
+      execute: () => Promise.resolve({ answer: 42 }),
+    }))
+    let observed: unknown
+    runtime.behavior = async (request) => {
+      observed = await request.bindings[0]!.functions.structured!({})
+      return { output: [] }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect(observed).toBeInstanceOf(PtcInspectableValue)
+    expect(observed).toMatchObject({ value: { answer: 42 }, text: 'rendered {"answer":42}' })
   })
 
-  it('renders deeply nested JSON without recursive traversal or quadratic indentation', async () => {
+  it('rejects a nested read_image call when no readable image path is mounted', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
-    let value: JsonValue = {
-      emptyArray: [],
-      emptyObject: {},
-      pair: ['leaf', 2],
-      record: { first: true, second: null },
+    ctx.tools.register(defineTool({
+      name: 'read_image',
+      description: 'Reads an image.',
+      parameters: { file_path: { type: 'string', required: true } },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render: () => [{ type: 'text', text: 'envelope' }, {
+          type: 'image',
+          attachment: { attachmentId: brandString<AttachmentId>('sha256:fixture'), mediaType: 'image/png', bytes: 4, width: 1, height: 1 },
+        }],
+      },
+      execute: () => Promise.resolve({ path: '/x.png', image: { attachmentId: 'sha256:fixture', mediaType: 'image/png', bytes: 4, width: 1, height: 1 } }),
+    }))
+    runtime.behavior = async (request) => {
+      const message = await request.bindings[0]!.functions.read_image!({ file_path: '/x.png' }).then(
+        () => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
+      return { output: [{ type: 'text', text: message }] }
     }
-    for (let depth = 0; depth < 5_000; depth++) value = [value]
-    runtime.behavior = () => Promise.resolve({ logs: [], value })
-
-    const result = await runCode(ctx, 'deep result')
-
+    const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
-    const text = (result.content[0] as { type: 'text'; text: string }).text
-    expect(text.startsWith('[\n  [\n    [')).toBe(true)
-    expect(text).toContain('"leaf"')
-    expect(text.endsWith(']')).toBe(true)
-    expect(text.length).toBeLessThan(11_000)
+    expect((result.content[0] as { text: string }).text).toContain('Image storage must expose a readable path')
+  })
+
+  it('adapts a nested read_image into the runtime Image through a readable attachment path', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime, { mode: 'code' })
+    await ctx.plugin((await import('@deepseek-ai/dsh-fs-local')).default, { cwd: '/' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:nested'), mediaType: 'image/png' as const, bytes: 32, width: 2, height: 2 }
+    class StubStore extends (await import('@deepseek-ai/dsh-attachment')).default {
+      readonly imageLimits = Object.freeze({ maxImageBytes: 100, maxImagesPerMessage: 2, maxMessageImageBytes: 100, maxImagePixels: 100, mediaTypes: Object.freeze(['image/png'] as const) })
+      validateImage(): Promise<void> { return Promise.resolve() }
+      async saveImage(): Promise<typeof attachment> { return attachment }
+      async readImage(): Promise<never> { throw new Error('not used') }
+      override imageHostPath(): string { return '/stored/nested.png' }
+    }
+    await ctx.plugin(StubStore)
+    await ctx.plugin(FakeRuntime)
+    const runtime = ctx.ptcRuntime as FakeRuntime
+    ctx.tools.register(defineTool({
+      name: 'read_image',
+      description: 'Reads an image.',
+      parameters: { file_path: { type: 'string', required: true } },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render: () => [{ type: 'text', text: 'envelope' }, { type: 'image', attachment }],
+      },
+      execute: () => Promise.resolve({ path: '/x.png', image: { ...attachment } }),
+    }))
+    runtime.behavior = async (request) => {
+      const image = await request.bindings[0]!.functions.read_image!({ file_path: '/x.png' })
+      const described = image as { path: string; attachment: { width: number } }
+      return { output: [{ type: 'text', text: `path ${described.path} width ${described.attachment.width}` }] }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect((result.content[0] as { text: string }).text).toBe(`path ${resolve('/stored/nested.png')} width 2`)
+  })
+
+  it('rejects an image-producing tool whose result carries no single image block', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    ctx.tools.register(defineTool({
+      name: 'read_image',
+      description: 'Reads an image.',
+      parameters: { file_path: { type: 'string', required: true } },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render: () => [{ type: 'text', text: 'text only' }],
+      },
+      execute: () => Promise.resolve({ path: '/x.png' }),
+    }))
+    runtime.behavior = async (request) => {
+      const message = await request.bindings[0]!.functions.read_image!({ file_path: '/x.png' }).then(
+        () => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
+      return { output: [{ type: 'text', text: message }] }
+    }
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect((result.content[0] as { text: string }).text).toContain('Image-producing tools must return exactly one image')
+  })
+
+  it('appends the truncation notice after trailing text without a leading blank line', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:trailing-run'), mediaType: 'image/png' as const, bytes: 64, width: 8, height: 4 }
+    runtime.behavior = () => Promise.resolve({ output: [{ type: 'image', attachment }, { type: 'text', text: 'kept\n' }], outputTruncated: true })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ logs: ['kept\n', '\n[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'], outputTruncated: true })
+    expect(result.content).toEqual([
+      { type: 'image', attachment },
+      { type: 'text', text: 'kept\n\n[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]' },
+    ])
+  })
+
+  it('reports a lone truncation notice when nothing was admitted before overflow', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve({ output: [], outputTruncated: true })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ logs: ['[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'], outputTruncated: true })
+    expect(result.content).toEqual([
+      { type: 'text', text: '[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]' },
+    ])
+  })
+
+  it('reports a quiet completion with no output as plain text', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve({ output: [] })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toEqual({ logs: [] })
+    expect(result.content).toEqual([{ type: 'text', text: '(run_code completed with no output)' }])
+  })
+
+  it('interleaves inspected images with the truncation notice on a truncated successful run', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:truncated-run'), mediaType: 'image/png' as const, bytes: 64, width: 8, height: 4 }
+    runtime.behavior = () => Promise.resolve({
+      output: [{ type: 'text', text: 'kept\n' }, { type: 'image', attachment }],
+      outputTruncated: true,
+    })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ logs: ['kept\n', '\n[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]'], outputTruncated: true })
+    expect(result.content).toEqual([
+      { type: 'text', text: 'kept\n' },
+      { type: 'image', attachment },
+      { type: 'text', text: '[output truncated: later captured output was discarded to fit the request budget; execution was not canceled — inspect current state instead of replaying]' },
+    ])
+  })
+
+  it.each([true, false])('keeps a wrapper-replaced %s result when a run inspected images', async (failed) => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:replaced-failure'), mediaType: 'image/png' as const, bytes: 64, width: 8, height: 4 }
+    runtime.behavior = () => failed
+      ? Promise.resolve({ output: [{ type: 'image', attachment }], error: { kind: 'exception', message: 'boom' } })
+      : Promise.resolve({ output: [{ type: 'image', attachment }, { type: 'text', text: 'kept\n' }] })
+    ctx.on('tools/execute', async (exec, next) => {
+      const result = await next()
+      if (exec.name !== RUN_CODE_NAME) return result
+      // A result replaced after the tool body ran no longer matches the
+      // interleaving projection, so the replacement wins verbatim.
+      return failed
+        ? { isError: true, error: { message: 'replaced diagnostic' }, content: [{ type: 'text', text: 'replaced' }] }
+        : { isError: false, value: { logs: ['replaced'] }, content: [{ type: 'text', text: 'replaced' }] }
+    })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(failed)
+    expect(result.content).toEqual([{ type: 'text', text: 'replaced' }])
+  })
+
+  it('appends interleaved inspected images beside a failed run\'s error content', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:failed-run'), mediaType: 'image/png' as const, bytes: 64, width: 8, height: 4 }
+    runtime.behavior = () => Promise.resolve({
+      output: [{ type: 'image', attachment }],
+      error: { kind: 'exception', message: 'boom' },
+    })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([
+      { type: 'text', text: 'Error: code run failed (exception): boom' },
+      { type: 'image', attachment },
+    ])
+  })
+
+  it('interleaves inspected images with text in the finalized result content', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const attachment = { attachmentId: brandString<AttachmentId>('sha256:interleave'), mediaType: 'image/png' as const, bytes: 64, width: 8, height: 4 }
+    runtime.behavior = () => Promise.resolve({
+      output: [
+        { type: 'text', text: 'before\n' },
+        { type: 'image', attachment },
+        { type: 'text', text: 'after\n' },
+      ],
+    })
+    const result = await runCode(ctx, 'program')
+    expect(result.isError).toBe(false)
+    expect(result.isError ? undefined : result.value).toEqual({ logs: ['before\n', 'after\n'] })
+    expect(result.content).toEqual([
+      { type: 'text', text: 'before\n' },
+      { type: 'image', attachment },
+      { type: 'text', text: 'after\n' },
+    ])
+  })
+
+  it('discards the completion value from the durable result while the program still settles', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve({ output: [], value: { n: 42, ok: true } })
+    const result = await runCode(ctx, 'object')
+    expect(result.isError).toBe(false)
+    expect(runtime.lastRequest?.discardCompletion).toBe(true)
+    expect(result.content[0]).toEqual({ type: 'text', text: '(run_code completed with no output)' })
+    expect(result.isError ? undefined : result.value).toEqual({ logs: [] })
   })
 
   it('short-circuits a pre-aborted outer signal before the code runtime', async () => {
@@ -1559,8 +1765,8 @@ describe('the run_code dispatch bridge', () => {
     const calls = registerEcho(ctx)
     runtime.behavior = (request) => {
       // The fake honors the seam contract for an already-aborted signal.
-      if (request.signal?.aborted) return Promise.resolve({ logs: [], error: { kind: 'abort' as const, message: String(request.signal.reason) } })
-      return Promise.resolve({ logs: [], value: 'unreachable' })
+      if (request.signal?.aborted) return Promise.resolve({ output: [], error: { kind: 'abort' as const, message: String(request.signal.reason) } })
+      return Promise.resolve({ output: [], value: 'unreachable' })
     }
     const controller = new AbortController()
     controller.abort('too-late')
@@ -1586,7 +1792,7 @@ describe('the run_code dispatch bridge', () => {
       controller.abort('cancelled-mid-run')
       const message = await request.bindings[0]!.functions.echo!({ value: 'x' })
         .then(() => 'resolved', (error: unknown) => error instanceof Error ? error.message : String(error))
-      return { logs: [], value: message }
+      return { output: [{ type: 'text', text: message }] }
     }
     const result = await runCode(ctx, 'program', { signal: controller.signal })
     expect(result.isError).toBe(true)
@@ -1879,7 +2085,7 @@ describe('run_code SDK text per evaluation form', () => {
     const body = renderToolsSdk([], 'function-body')
     const script = renderToolsSdk([], 'script')
     expect(script).toContain('the program to execute')
-    expect(script).toContain('Emit results with `console.log(...)`')
+    expect(script).toContain('Show selected values and images with \`inspect(...values)\`')
     expect(script).not.toContain('ONLY what you print or return')
     expect(renderToolsSdk([])).toBe(body)
   })

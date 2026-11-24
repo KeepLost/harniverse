@@ -21,7 +21,7 @@ This provider is opt-in. No shipped Profile selects it. A deployment that alread
 | `cpuSeconds` | `60` | Positive whole-second `RLIMIT_CPU` soft limit, applied where Python exposes `resource.RLIMIT_CPU`. |
 | `maxWallMs` | `600000` | Positive Host wall-clock ceiling, including bootstrap and binding waits. |
 | `maxAddressSpaceMb` | `512` | Positive whole-MiB `RLIMIT_AS` soft limit, applied where the platform measures it as address space. macOS aliases `RLIMIT_AS` onto `RLIMIT_RSS`, so the bound is not applied there; the CPU and Host wall-clock ceilings still are. |
-| `maxOutputBytes` | `67108864` | Combined serialized budget for ordered logs plus the completion value or failure message. |
+| `maxOutputBytes` | `67108864` | Combined serialized budget for ordered output fragments plus the completion value or failure message. |
 | `maxControlBytes` | `67109888` | Maximum control JSONL frame width; must leave 1 KiB above `maxOutputBytes`. This provider limit also bounds one binding argument or resolution frame. |
 
 Invalid config fails plugin setup, as does an executable that does not resolve to an executable file or fails the CPython version probe. An interpreter removed after load, interpreter exit, resource death, malformed oversized frame, program exception, timeout, abort, or invalid completion resolves through `PtcRunResult.error`; captured output past the budget truncates to its ordered prefix with `outputTruncated` and never fails a run; invalid portable bindings, disposal misuse, and invalid config reject as Service Definition misuse.
@@ -32,7 +32,7 @@ Node resolves `pythonExecutable` once at plugin load, probes it as CPython 3.10 
 
 The Host treats every child frame as hostile: it caps lines before parsing, rejects integer tokens that JavaScript would round, validates and rebuilds known frames field by field, ignores unknown/malformed frames and duplicate call ids, uses own-property binding lookup over a validation-time snapshot, bounds in-flight binding calls and unflushed reply frames at 1024 each (settling the run as a worker-exit when a binding never settles or the child stops consuming its replies), and revalidates completion values. Child errors and Host process failures expose bounded diagnostics without process paths, environment values, stacks, or raw protocol payloads.
 
-The bootstrap uses only the Python standard library. It wraps model source in `async def __dsh_main__()` so top-level `await` and `return` work, injects each namespace as async functions, materializes optional typed binding exceptions, and validates arguments, replies, and completion values as lossless JSON. Python-level stdout/stderr writes and `console.log`/`warn`/`error` calls use one ordered protocol stream; native writes that bypass `sys.stdout`/`sys.stderr` remain bounded Host-captured backstops.
+The bootstrap uses only the Python standard library. It wraps model source in `async def __dsh_main__()` so top-level `await` and `return` work, injects each namespace as async functions, materializes optional typed binding exceptions, and validates arguments, replies, and completion values as lossless JSON. Python-level stdout/stderr writes and `console.log`/`warn`/`error` calls use one ordered protocol stream; native writes that bypass `sys.stdout`/`sys.stderr` remain bounded Host-captured backstops. A request with `discardCompletion: true` awaits the program without serializing or validating its completion; `run_code` sets it, so Python programs answer through printed output alone.
 
 Disposal marks the provider unusable, fails every live run as aborted, kills each child, and awaits all child exits before the Cordis fiber settles.
 
@@ -42,11 +42,11 @@ Disposal marks the provider unusable, fails every live run as aborted, kills eac
 
 #### What the model sees
 
-PTC in [`dsh-tools`](../../core/tools/README.md) selects its existing Python SDK and `run_code` wording from this provider's `language` descriptor, then renders bounded logs, a lossless JSON completion, or a sanitized failure into the retained tool result.
+PTC in [`dsh-tools`](../../core/tools/README.md) selects its existing Python SDK and `run_code` wording from this provider's `language` descriptor, then renders bounded output fragments, a lossless JSON completion, or a sanitized failure into the retained tool result.
 
 #### Token effect
 
-Selecting this provider replaces the TypeScript PTC SDK and tool-description tokens with their Python forms; run results retain only the bounded logs, completion, or failure selected by the Consumer.
+Selecting this provider replaces the TypeScript PTC SDK and tool-description tokens with their Python forms; run results retain only the bounded output fragments, completion, or failure selected by the Consumer.
 
 #### KV Cache effect
 

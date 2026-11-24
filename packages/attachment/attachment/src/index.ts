@@ -169,6 +169,17 @@ export abstract class AttachmentStore extends Service {
   }
 
   /**
+   * Locate the provider-owned normalized object in the harness host filesystem.
+   * @param ref - durable normalized attachment reference.
+   * @returns an absolute host path, or undefined when this backend is not host-file-backed.
+   * @throws an AttachmentError when the durable reference is invalid.
+   */
+  imageHostPath(ref: ImageAttachmentRef): string | undefined {
+    void ref
+    return undefined
+  }
+
+  /**
    * Publish (idempotently) the read-only hard-link handle path a model reads
    * a stored file through. Default refusal keeps existing implementations valid.
    * @param ref - durable reference from the session log.

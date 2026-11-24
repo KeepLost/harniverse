@@ -28,9 +28,11 @@ class BootMessage(TypedDict):
     namespaces: "list[Namespace]"
 
 
-class RunMessage(TypedDict):
-    type: Literal["run"]
-    program: str
+_RunMessageRequired = TypedDict("_RunMessageRequired", {"type": Literal["run"], "program": str})
+
+
+class RunMessage(_RunMessageRequired, total=False):
+    discardCompletion: bool
 
 
 class BootAckMessage(TypedDict):

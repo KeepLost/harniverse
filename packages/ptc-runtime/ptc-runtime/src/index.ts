@@ -13,6 +13,7 @@ export type {
   PtcBindingFunction,
   PtcBindingNamespace,
   PtcJsonValue,
+  PtcOutput,
   PtcProgramFormat,
   PtcRunFailure,
   PtcRunRequest,
@@ -21,9 +22,13 @@ export type {
   PtcRunSandbox,
 } from './types.ts'
 
+export { PtcImage } from './image.ts'
+export { PtcInspectableValue } from './inspectable-value.ts'
+
 /**
  * Binding globals EVERY backend refuses because SOME backend owns the slot in
- * the program's namespace: `console` (Node's log capture), and
+ * the program's namespace: `console`, `inspect`, and `Image` (the Node
+ * backend's log capture and explicit-output selection globals), and
  * `__dsh_main__`/`__builtins__`/`__name__` (the Python backend's bootstrap
  * wrapper and seeded module globals),
  * and `__debug__`. One shared set — rather than each backend refusing only its
@@ -41,7 +46,7 @@ export type {
  * Python backend, which is exactly the split the shared set exists to prevent.
  */
 export const RESERVED_BINDING_GLOBALS: ReadonlySet<string> = new Set([
-  'console',
+  'console', 'inspect', 'Image',
   '__dsh_main__', '__builtins__', '__name__', '__debug__',
 ])
 

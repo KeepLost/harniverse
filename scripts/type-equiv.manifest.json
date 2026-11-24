@@ -921,6 +921,11 @@
     },
     {
       "doc": "docs/subsystems/ptc-runtime.md",
+      "symbol": "PtcOutput",
+      "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/ptc-runtime.md",
       "symbol": "PtcRunFailure",
       "source": "packages/ptc-runtime/ptc-runtime/src/types.ts"
     },

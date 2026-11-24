@@ -78,7 +78,7 @@ describe('Node runtime host failures', () => {
     const h = await setup({}, 'read-only')
     vi.spyOn(h.ctx.sandbox, 'confine').mockImplementation(async argv => confinement([...argv]))
     h.onBoot(() => { h.complete({ value: encodePtcJsonWire(42) }) })
-    expect(await h.start()).toEqual({ logs: [], value: 42, sandbox: { mode: 'read-only', denied: false, enforcement: 'partial' } })
+    expect(await h.start()).toEqual({ output: [], value: 42, sandbox: { mode: 'read-only', denied: false, enforcement: 'partial' } })
   })
 
   it.each([['EACCES: blocked', true], ['EPERM: unrelated dialect', false]] as const)('uses only the selected denial dialect for %s', async (message, denied) => {
@@ -398,7 +398,7 @@ describe('Node runtime host failures', () => {
     })
     const result = await h.start()
     expect(result.error?.kind).toBe('output-limit')
-    expect(result.logs).toEqual(['retained'])
+    expect(result.output).toEqual([{ type: 'text', text: 'retained' }])
   })
 
   it.each([undefined, { kind: 'exception', message: 'program failed' }] as const)('bounds incomplete raw output after completion with %j', async (failure) => {
@@ -431,9 +431,9 @@ describe('Node runtime host failures', () => {
     })
     const result = await h.start()
     expect(result.error).toBeUndefined()
-    expect(result.logs.filter(text => text === '\uFEFF')).toHaveLength(2)
-    expect(result.logs.filter(text => text === '€')).toHaveLength(2)
-    expect(result.logs.filter(text => text === '�')).toHaveLength(2)
+    expect(result.output.filter(entry => entry.type === 'text' && entry.text === '\uFEFF')).toHaveLength(2)
+    expect(result.output.filter(entry => entry.type === 'text' && entry.text === '€')).toHaveLength(2)
+    expect(result.output.filter(entry => entry.type === 'text' && entry.text === '\uFFFD')).toHaveLength(2)
   })
 
   it('keeps the fitting native-output prefix and ignores later overflow chunks', async () => {
@@ -450,8 +450,8 @@ describe('Node runtime host failures', () => {
     const result = await h.start()
     expect(result.error).toBeUndefined()
     expect(result.outputTruncated).toBe(true)
-    expect(result.logs.join('')).toMatch(/^x+$/)
-    expect(Buffer.byteLength(JSON.stringify(result.logs))).toBeLessThanOrEqual(256)
+    expect(result.output.map(entry => entry.type === 'text' ? entry.text : '').join('')).toMatch(/^x+$/)
+    expect(Buffer.byteLength(JSON.stringify(result.output.map(entry => entry.type === 'text' ? entry.text : entry)))).toBeLessThanOrEqual(256)
   })
 
   it.each(['stdout', 'stderr'] as const)('reports a broken raw %s pipe', async (name) => {
@@ -540,7 +540,7 @@ it('preserves execution context for bindings delivered by an external control st
   h.receive((raw) => {
     const message = raw as { t: string; m?: string; r?: unknown }
     if ('m' in message && message.m === 'run') booted.resolve(undefined)
-    if (message.t === 's') h.complete({ value: message.r })
+    if (message.t === 's') h.complete(message.r)
   })
   const context = new AsyncLocalStorage<string>()
   const pending = context.run('binding context', () => h.start({ ...request, sandboxPolicy: h.ctx.sandboxPolicy.resolve({ session }),

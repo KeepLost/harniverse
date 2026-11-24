@@ -224,7 +224,7 @@ describe('outer PTC failure capture', () => {
       callId: CallId('code-output-limit'),
       name: 'run_code',
       arguments: {
-        code: 'console.log("HEAD-" + "x".repeat(300)); console.log("TAIL-" + "y".repeat(300)); return "unreachable";',
+        code: 'inspect("HEAD-" + "x".repeat(300)); inspect("TAIL-" + "y".repeat(300));',
         description: 'Print oversized head and tail lines',
       },
       agent: agent as never,
@@ -236,7 +236,7 @@ describe('outer PTC failure capture', () => {
     expect(saved[0]?.source.toolName).toBe('run_code')
     expect(saved[0]?.content).toContain('HEAD-')
     expect(saved[0]?.content).toContain('[output truncated:')
-    expect(saved[0]?.content).toContain('unreachable')
+    expect(saved[0]?.content).toContain('TAIL-')
     expect(textOf(result.content)).toContain('Full formatted result stored at: /spill/run_code.txt')
     expect(events).toEqual([])
   })
@@ -288,7 +288,7 @@ describe('the durable dispatch-log arm', () => {
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected success')
     // The program received the COMPLETE text (length 2000), untouched by spill.
-    expect(result.value).toMatchObject({ result: 2_000 })
+    expect(result.value).toMatchObject({ logs: [] })
     // The durable settle event carries the bounded projection + locator.
     const settle = events.find(event => event.type === 'tool/code-dispatch')
     expect(settle).toBeDefined()
@@ -384,7 +384,7 @@ describe('the durable dispatch-log arm', () => {
     const result = await runPromise
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected success')
-    expect(result.value).toMatchObject({ result: 2_004 })
+    expect(result.value).toMatchObject({ logs: [] })
     const settles = events.filter(event => event.type === 'tool/code-dispatch')
     expect(settles).toHaveLength(2)
     expect(smallAfterHuge).toBe(true)

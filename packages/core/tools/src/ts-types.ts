@@ -252,10 +252,10 @@ function renderSdkInstructions(programFormat: PtcProgramFormat): string {
 
 \`run_code\` takes two required arguments: \`code\` — the body of an async TypeScript function (erasable syntax only — no \`enum\` or namespaces; type annotations are advisory, the code runs type-stripped) — and \`description\`, a short summary of what the program does. Inside the program:
 
-- Call tools as \`await tools.name(args)\` — quoted access for exotic names: \`tools["my-tool"](args)\`. Every call resolves to the tool's typed canonical JSON value. Tool arguments must be lossless JSON.
+- Call tools as \`await tools.name(args)\` — quoted access for exotic names: \`tools["my-tool"](args)\`. Every call resolves to its declared value, which may be an Image. Tool arguments must be lossless JSON.
 - A FAILED tool call rejects with \`ToolCallError\`, whose \`toolName\` identifies the failed tool and whose \`message\` is human-readable — \`try/catch\` it to handle and continue.
 - Independent read-only calls MAY overlap under \`Promise.all\` (safe calls run concurrently; mutating calls run alone, in submission order). Sequence dependent work with \`await\`.
-- Emit results with \`return\` and/or \`console.log(...)\`. ONLY what you print or return comes back to you — intermediate tool results never enter the conversation, so extract just what you need.
+- Show selected values and images with \`inspect(...values)\`; every other intermediate result stays out of the conversation, so extract just what you need.
 
 The available tools:`
   return `## Writing code for run_code
@@ -264,10 +264,10 @@ The available tools:`
 
 Inside the program:
 
-- Call tools as \`await tools.name(args)\` — quoted access for exotic names: \`tools["my-tool"](args)\`. Every call resolves to the tool's typed canonical JSON value. Tool arguments must be lossless JSON.
+- Call tools as \`await tools.name(args)\` — quoted access for exotic names: \`tools["my-tool"](args)\`. Every call resolves to its declared value, which may be an Image. Tool arguments must be lossless JSON.
 - A FAILED tool call rejects with \`ToolCallError\`, whose \`toolName\` identifies the failed tool and whose \`message\` is human-readable — \`try/catch\` it to handle and continue.
 - Independent read-only calls MAY overlap under \`Promise.all\` (safe calls run concurrently; mutating calls run alone, in submission order). Sequence dependent work with \`await\`.
-- Emit results with \`console.log(...)\`. ONLY emitted program output comes back to you — intermediate tool results never enter the conversation, so extract just what you need.
+- Show selected values and images with \`inspect(...values)\`; every other intermediate result stays out of the conversation, so extract just what you need.
 
 The available tools:`
 }
@@ -292,11 +292,15 @@ export function renderToolsSdk(schemas: ToolSdkSchema[], programFormat: PtcProgr
   for (const schema of sorted) {
     argsMembers.push(...docLines(schema.description, 1))
     argsMembers.push(`${pad(1)}${renderKey(schema.name)}: ${jsonSchemaToTs(schema.parameters, 1)};`)
-    outputMembers.push(`${pad(1)}${renderKey(schema.name)}: ${jsonSchemaToTs(schema.output, 1)};`)
+    // FIXME: Derive program return types from tool-declared adaptations, together with the binding adapter.
+    const output = schema.name === 'read_image' ? 'Image' : jsonSchemaToTs(schema.output, 1)
+    outputMembers.push(`${pad(1)}${renderKey(schema.name)}: ${output};`)
   }
   const argsMap = `interface ToolArgsMap {${argsMembers.length > 0 ? `\n${argsMembers.join('\n')}\n` : ''}}`
   const outputMap = `interface ToolOutputMap {${outputMembers.length > 0 ? `\n${outputMembers.join('\n')}\n` : ''}}`
   const declaration = [
+    'declare class Image { private constructor(); readonly attachmentId: string; readonly path: string; readonly width: number; readonly height: number; }',
+    'declare function inspect(...values: unknown[]): void;',
     argsMap,
     outputMap,
     'type ToolName = keyof ToolOutputMap',

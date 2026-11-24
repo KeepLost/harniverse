@@ -39,6 +39,10 @@ function image(mediaType: SaveImageAttachment['mediaType'], bytes: number): Save
 }
 
 describe('AttachmentStore default behavior', () => {
+  it('leaves image host paths undefined until a host-file-backed backend overrides them', () => {
+    expect(store().imageHostPath({ attachmentId: AttachmentId('sha256:x'), mediaType: 'image/png', bytes: 1, width: 1, height: 1 })).toBeUndefined()
+  })
+
   it('validates the whole batch before saving it in order', async () => {
     const subject = store()
     const refs = await subject.saveImages([image('image/png', 2), image('image/jpeg', 3)])

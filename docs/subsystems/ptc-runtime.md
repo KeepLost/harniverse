@@ -26,6 +26,8 @@ interface PtcRunRequest {
    * becomes {@link PtcRunResult.value}.
    */
   program: string
+  /** Discard the completion without JSON validation when true; omission preserves the completion value. */
+  discardCompletion?: boolean
   /**
    * Object-identity owner for optional in-memory state. Omission requests a fresh
    * environment. Consumers must await runtime.release(owner) when the owner ends.
@@ -93,11 +95,13 @@ interface PtcRunResult {
    */
   value?: PtcJsonValue
   /**
-   * Captured text. Each source channel preserves emission order; interleaving
-   * across independent channels is backend-dependent. Bounded only as part of
-   * the outer result.
+   * Captured text fragments and inspected images in emission order. Text
+   * fragments retain their emitted line breaks; concatenate adjacent text
+   * without separators. Each source channel preserves emission order;
+   * interleaving across independent channels is backend-dependent. Bounded
+   * only as part of the outer result.
    */
-  logs: string[]
+  output: PtcOutput[]
   /** Present iff the run failed; see {@link PtcRunFailure} for the taxonomy. */
   error?: PtcRunFailure
   /**
@@ -111,6 +115,11 @@ interface PtcRunResult {
 ```
 
 ```ts type-equiv
+/** Raw text fragments and inspected images in emission order; concatenate adjacent text without separators. */
+type PtcOutput = { type: 'text'; text: string } | { type: 'image'; attachment: ImageAttachmentRef }
+```
+
+```ts type-equiv
 /** Source evaluation form, independent of retained program state. */
 type PtcProgramFormat = 'function-body' | 'repl' | 'script'
 ```
@@ -119,7 +128,7 @@ type PtcProgramFormat = 'function-body' | 'repl' | 'script'
 
 ## Bindings: host functions as program globals
 
-Each `PtcBindingNamespace` becomes a global object of async callables; PTC passes `tools`. Arguments and resolutions must be lossless JSON. Providers enforce their own transport caps; the seam sets no uniform binding-byte limit. An optional error-class descriptor creates program-visible typed rejections without naming a consumer inside the runtime. Binding names are own properties, so `__proto__` cannot traverse a prototype:
+Each `PtcBindingNamespace` becomes a global object of async callables; PTC passes `tools`. Arguments must be lossless JSON; resolutions also support host-issued `PtcImage` values (a stored image with its program-readable path, emitted by inspection when selected) and `PtcInspectableValue` values (a JSON object or array whose unchanged inspection renders host-authored text). Providers enforce their own transport caps; the seam sets no uniform binding-byte limit. An optional error-class descriptor creates program-visible typed rejections without naming a consumer inside the runtime. Binding names are own properties, so `__proto__` cannot traverse a prototype:
 
 ```ts type-equiv
 /**
@@ -178,18 +187,19 @@ type PtcJsonValue = null | boolean | number | string | PtcJsonValue[] | { [key: 
 /**
  * One host-side function exposed to the program as an async callable. The
  * runtime bridges calls to it (possibly across a serialization boundary), so
- * `args` and the resolution value MUST be lossless JSON. A runtime rejects a
- * lossy or non-cloneable value with a descriptive error rather than corrupting
- * the run. No seam-level byte cap applies to a binding resolution. A rejection
- * of this function surfaces inside the program as a rejection of the
- * corresponding call.
- */
-type PtcBindingFunction = (args: unknown) => Promise<PtcJsonValue>
+ * `args` must be lossless JSON; resolutions also support host-issued PtcImage
+ * and PtcInspectableValue values. An inspectable resolution delivers its JSON
+ * object or array to the program and uses its text only when that unchanged
+ * value is inspected directly. A runtime rejects a lossy or non-cloneable
+ * value with a descriptive error rather than corrupting the run. No seam-level
+ * byte cap applies to a binding resolution. A rejection of this function
+ * surfaces inside the program as a rejection of the corresponding call.
+ */type PtcBindingFunction = (args: unknown) => Promise<PtcJsonValue>
 ```
 
 ## Captured output and the failure taxonomy
 
-Logs are plain strings. Each source channel preserves emission order, while interleaving across independent channels is backend-dependent because channel metadata is not part of the seam. The runtime captures the program's console and stream output, and consumers render only the text. Implementations cap the serialized outer log-array plus completion-value or failure-message payload; fixed result-envelope syntax and consumer presentation whitespace are not part of that variable-payload ledger. Overflow is an explicit failure rather than in-band value substitution.
+Output is an ordered fragment list: text fragments and inspected images interleave in emission order, and consumers concatenate adjacent text without separators. Each source channel preserves emission order, while interleaving across independent channels is backend-dependent because channel metadata is not part of the seam. The runtime captures the program's console and stream output beside explicit inspection output, and consumers render fragments with their durable image references. Implementations cap the serialized outer fragment array plus completion-value or failure-message payload; fixed result-envelope syntax and consumer presentation whitespace are not part of that variable-payload ledger. Overflow truncates captured output without canceling execution; a required completion value that cannot fit even alone fails with `output-limit`.
 
 Failure kinds are **orthogonal outcomes reported independently** (per [defensive-patterns]): a budget expiry is not an exception, an abort is not a timeout, and a substrate death (e.g. OOM) is neither:
 
@@ -262,5 +272,5 @@ abstract resolve(request: PtcRunRequest): PtcRunSpec
 abstract run(spec: PtcRunSpec): Promise<PtcRunResult>
 ```
 
-Source: [`packages/ptc-runtime/ptc-runtime/src/index.ts:105`](../../packages/ptc-runtime/ptc-runtime/src/index.ts)
+Source: [`packages/ptc-runtime/ptc-runtime/src/index.ts:110`](../../packages/ptc-runtime/ptc-runtime/src/index.ts)
 <!-- END GENERATED cordis-surface -->
