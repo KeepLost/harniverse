@@ -30,7 +30,7 @@ Same-process event payloads are borrowed immutable values. Every listener is ind
 
 ## Failure discipline
 
-`WorkflowError` carries a code and a `fatal` flag. Fatal errors always escape `parallel()` and `pipeline()` instead of becoming an ordinary per-item `null`:
+`WorkflowError` carries a code and a `fatal` flag. Fatal errors always escape `parallel()` and `pipeline()` instead of becoming an ordinary per-item `null`; the engine reports the code that ended an `error` run as `WorkflowResult.errorCode`:
 
 - `SCRIPT_PARSE` / `META_INVALID` — the workflow cannot start.
 - `INVALID_ARGUMENT` / `UNSUPPORTED_OPTION` / `UNSUPPORTED_SCHEMA` — a hook call violates the engine contract.
@@ -39,6 +39,7 @@ Same-process event payloads are borrowed immutable values. Every listener is ind
 - `AGENT_RESULT` — a published child's result rejected with an infrastructure fault.
 - `RESULT_UNSERIALIZABLE` — a script/worker value is not plain JSON data.
 - `CANCELLED` — cancellation owns the run and pending/future hooks reject.
+- `RUN_FAILED` — the consumer's classification of an `error` run that no code above ended: the script's own exception or an engine runtime failure.
 
 A child that resolves normally with a non-completed stop reason is not an infrastructure exception: `agent()` returns `null`, allowing the script to handle an ordinary child failure.
 

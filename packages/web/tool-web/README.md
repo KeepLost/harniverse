@@ -40,7 +40,7 @@ The normalized service results are also the canonical tool values: `WebSearchRes
 
 ### Search Query Contract
 
-`web_search` requires `queries` to be an array containing 1 through `searchMaxQueries` string values. The model schema rejects an absent `queries`, a scalar legacy `{ query: "..." }`, or a non-array `queries` value with `INVALID_ARGS` before execution. After schema validation, an empty array reports `queries must contain at least one query`, a blank item reports `each query must be a non-empty string`, and an over-limit array reports `queries must contain at most <N> query` or `queries` before any provider request. Exact duplicate query strings are removed after the count check, preserving first occurrence order, so a call cannot evade the configured bound by repeating a query.
+`web_search` requires `queries` to be an array containing 1 through `searchMaxQueries` string values. The model schema rejects an absent `queries`, a scalar legacy `{ query: "..." }`, or a non-array `queries` value with `INVALID_ARGS` before execution. After schema validation, an empty array reports `invalid arguments: queries must contain at least one query`, a blank item reports `invalid arguments: each query must be a non-empty string`, and an over-limit array reports `invalid arguments: queries must contain at most <N> query` or `queries`, each as `ToolArgsError` with `INVALID_ARGS`, before any provider request. Exact duplicate query strings are removed after the count check, preserving first occurrence order, so a call cannot evade the configured bound by repeating a query.
 
 ### Multi-query Search
 
@@ -136,7 +136,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Blank URL inputs become exactly `Error: url must be a non-empty string`; search argument shape errors are either schema-level `INVALID_ARGS` or the `queries` array validation messages documented in the Search Query Contract above.
+Blank URL inputs become exactly `Error: invalid arguments: url must be a non-empty string` as `ToolArgsError` with `INVALID_ARGS`; search argument shape errors are either schema-level `INVALID_ARGS` or the `ToolArgsError` `queries` array validation messages documented in the Search Query Contract above.
 
 #### Token effect
 

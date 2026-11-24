@@ -30,7 +30,7 @@
 
 ## 失败纪律
 
-`WorkflowError` 携带一个代码和 `fatal` 标志。致命错误总会逸出 `parallel()` 和 `pipeline()`，而不会变成普通的逐项 `null`：
+`WorkflowError` 携带一个代码和 `fatal` 标志。致命错误总会逸出 `parallel()` 和 `pipeline()`，而不会变成普通的逐项 `null`；引擎会把结束 `error` 运行的 code 报告为 `WorkflowResult.errorCode`：
 
 - `SCRIPT_PARSE` / `META_INVALID`：工作流无法启动；
 - `INVALID_ARGUMENT` / `UNSUPPORTED_OPTION` / `UNSUPPORTED_SCHEMA`：钩子调用违反引擎契约；
@@ -38,7 +38,8 @@
 - `AGENT_START`：提供方的异步启动调用被拒绝；
 - `AGENT_RESULT`：已发布子 agent 的结果因基础设施故障而被拒绝；
 - `RESULT_UNSERIALIZABLE`：脚本/worker 值不是普通 JSON 数据；
-- `CANCELLED`：取消会接管该运行，待处理和未来的钩子都会拒绝。
+- `CANCELLED`：取消会接管该运行，待处理和未来的钩子都会拒绝；
+- `RUN_FAILED`：消费方对未被上述 code 结束的 `error` 运行所作的分类：脚本自身抛出的异常或引擎运行时失败。
 
 子 agent 若以非完成的结束原因正常兑现，并不属于基础设施异常：`agent()` 返回 `null`，使脚本可以处理普通的子 agent 失败。
 

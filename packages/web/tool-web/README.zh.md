@@ -40,7 +40,7 @@
 
 ### 搜索查询契约
 
-`web_search` 要求 `queries` 为包含 1 至 `searchMaxQueries` 个字符串的数组。模型 schema 会在执行前以 `INVALID_ARGS` 拒绝缺少 `queries`、标量旧式 `{ query: "..." }` 或非数组的 `queries`。通过 schema 后，空数组报告 `queries must contain at least one query`，空白项报告 `each query must be a non-empty string`，超限数组报告 `queries must contain at most <N> query` 或 `queries`，并且都不会调用提供方。完全相同的查询字符串在检查数量上限后去重，并保留首次出现顺序，因此重复查询不能绕过配置上限。
+`web_search` 要求 `queries` 为包含 1 至 `searchMaxQueries` 个字符串的数组。模型 schema 会在执行前以 `INVALID_ARGS` 拒绝缺少 `queries`、标量旧式 `{ query: "..." }` 或非数组的 `queries`。通过 schema 后，空数组报告 `invalid arguments: queries must contain at least one query`，空白项报告 `invalid arguments: each query must be a non-empty string`，超限数组报告 `invalid arguments: queries must contain at most <N> query` 或 `queries`，均为带 `INVALID_ARGS` 的 `ToolArgsError`，并且都不会调用提供方。完全相同的查询字符串在检查数量上限后去重，并保留首次出现顺序，因此重复查询不能绕过配置上限。
 
 ### 多查询搜索
 
@@ -136,7 +136,7 @@ Use the web_fetch tool to retrieve a specific public-web URL on a best-effort ba
 
 #### 模型看到的内容
 
-空白 URL 输入精确地变为 `Error: url must be a non-empty string`；搜索参数形状错误要么是 schema 层的 `INVALID_ARGS`，要么是上文搜索查询契约中的 `queries` 数组验证消息。
+空白 URL 输入精确地变为 `Error: invalid arguments: url must be a non-empty string`，对应带 `INVALID_ARGS` 的 `ToolArgsError`；搜索参数形状错误要么是 schema 层的 `INVALID_ARGS`，要么是上文搜索查询契约中的 `queries` 数组 `ToolArgsError` 验证消息。
 
 #### Token 影响
 

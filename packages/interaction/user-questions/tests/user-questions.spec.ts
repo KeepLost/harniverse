@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import UserQuestionService, {
   UserQuestionError,
@@ -103,6 +104,48 @@ describe('UserQuestionService', () => {
     await expect(ctx.userQuestions.ask({ questions: [] }))
       .rejects.toMatchObject({ name: 'UserQuestionError', code: 'EMPTY_QUESTIONS' })
     expect(p.ask).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['an ordinary Error', new Error('provider failed'), 'provider failed'],
+    ['a namesake Error without a string code', Object.assign(new Error('provider failed'), {
+      name: 'UserQuestionError',
+    }), 'provider failed'],
+    ['a non-Error rejection', { name: 'UserQuestionError', code: 'ASK_CANCELLED' }, 'the user-questions answerer failed before the user answered'],
+  ])('classifies %s from the provider as PROVIDER_ERROR', async (_label, rejection, message) => {
+    const ctx = new Context()
+    await ctx.plugin(UserQuestionService)
+    ctx.userQuestions.registerProvider({ ask: vi.fn().mockRejectedValue(rejection) })
+
+    const failure = await ctx.userQuestions.ask({
+      questions: [{ id: 'confirm', question: 'Proceed?' }],
+    }).then(() => undefined, (error: unknown) => error)
+    expect(failure).toBeInstanceOf(UserQuestionError)
+    expect(failure).toMatchObject({ name: 'UserQuestionError', code: 'PROVIDER_ERROR', message, cause: rejection })
+  })
+
+  it.each([
+    ['a UserQuestionError', new UserQuestionError('review cancelled', 'ASK_CANCELLED')],
+    ['another HarnessError', new HarnessError('connection closed', 'TRANSPORT')],
+  ])('keeps the name and code of %s thrown by the provider', async (_label, coded) => {
+    const ctx = new Context()
+    await ctx.plugin(UserQuestionService)
+    ctx.userQuestions.registerProvider({ ask: vi.fn().mockRejectedValue(coded) })
+
+    await expect(ctx.userQuestions.ask({ questions: [{ id: 'confirm', question: 'Proceed?' }] })).rejects.toBe(coded)
+  })
+
+  it('reports a provider failure after the caller aborted as ASK_ABORTED', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserQuestionService)
+    const controller = new AbortController()
+    const rejection = new Error('connection closed')
+    ctx.userQuestions.registerProvider({
+      ask: vi.fn(async () => { controller.abort('caller stopped'); throw rejection }),
+    })
+
+    await expect(ctx.userQuestions.ask({ questions: [{ id: 'confirm', question: 'Proceed?' }], signal: controller.signal }))
+      .rejects.toMatchObject({ name: 'UserQuestionError', code: 'ASK_ABORTED', cause: rejection })
   })
 
   it('rejects a live runtime-owned agent before reaching the provider', async () => {

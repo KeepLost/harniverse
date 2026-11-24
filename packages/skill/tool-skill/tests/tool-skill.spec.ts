@@ -842,7 +842,9 @@ describe('dsh-tool-skill', () => {
     const invalid = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c2'), name: 'skill', arguments: { name: 'Bad_Name' } })
 
     expect(unknown.isError).toBe(true)
-    expect(invalid.isError).toBe(true)
+    expect(invalid.error).toEqual({
+      message: 'invalid arguments: invalid skill name "Bad_Name"', info: { name: 'ToolArgsError', code: 'INVALID_ARGS' },
+    })
     const unknownBlock = unknown.content[0]
     if (unknownBlock?.type !== 'text') throw new Error('expected text tool result')
     expect(unknownBlock.text).toContain('skill "missing" is unknown or no longer available')

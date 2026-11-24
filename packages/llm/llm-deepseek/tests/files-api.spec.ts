@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DeepSeekFileId } from '../src/common/file-id.ts'
 import {
   DeepSeekFilesClient,
@@ -8,6 +8,7 @@ import {
   MAX_FILE_UPLOAD_BYTES,
   MIN_FILE_EXPIRY_SECONDS,
 } from '../src/common/files-api.ts'
+import { uploadedForm } from './helpers.ts'
 
 function fileJson(id = 'file-1') {
   return {
@@ -59,10 +60,13 @@ describe('DeepSeek Files API client (messages flavor)', () => {
     const client = returning(messagesFile)
     const created = await client.upload({ data: Uint8Array.of(1), mediaType: 'image/png', filename: 'm.png', expiresAfterSeconds: 3_600 })
     expect(created.expiresAt).toBe(Date.parse('2026-01-02T03:04:05.000Z') + 3_600_000)
-    const form = wire.at(-1)?.init.body
-    expect(form).toBeInstanceOf(FormData)
-    expect((form as FormData).get('purpose')).toBeNull()
-    expect((form as FormData).get('expires_after[seconds]')).toBe('3600')
+    const init = wire.at(-1)?.init
+    expect(new Headers(init?.headers).get('content-type')).toMatch(/^multipart\/form-data; boundary=/u)
+    expect(init?.body).toBeInstanceOf(Uint8Array)
+    const form = await uploadedForm(init)
+    expect([...form.keys()]).toEqual(['expires_after[anchor]', 'expires_after[seconds]', 'file'])
+    expect(form.get('purpose')).toBeNull()
+    expect(form.get('expires_after[seconds]')).toBe('3600')
   })
 
   it('lists with anthropic pagination and ignores chat-only knobs', async () => {
@@ -118,12 +122,37 @@ describe('DeepSeek Files API client', () => {
     })
     expect(result).toMatchObject({ id: DeepSeekFileId('file-1'), bytes: 2, expiresAt: 100_000 })
     expect(requests[0]?.url).toBe('https://example.test/files')
-    expect(new Headers(requests[0]?.init.headers).get('authorization')).toBe('Bearer secret')
-    expect(requests[0]?.init.body).toBeInstanceOf(FormData)
-    const form = requests[0]?.init.body as FormData
+    const init = requests[0]?.init
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret')
+    expect(new Headers(init?.headers).get('content-type')).toMatch(/^multipart\/form-data; boundary=/u)
+    const form = await uploadedForm(init)
+    expect([...form.keys()]).toEqual(['purpose', 'expires_after[anchor]', 'expires_after[seconds]', 'file'])
     expect(form.get('purpose')).toBe('user_data')
     expect(form.get('expires_after[seconds]')).toBe(String(MIN_FILE_EXPIRY_SECONDS))
-    expect((form.get('file') as File).name).toBe('image.png')
+    const uploaded = form.get('file')
+    if (!(uploaded instanceof File)) throw new Error('expected multipart file')
+    expect(uploaded.name).toBe('image.png')
+    expect(uploaded.type).toBe('image/png')
+    expect([...await uploaded.bytes()]).toEqual([1, 2])
+  })
+
+  it.each(['messages', 'chat-completions'] as const)('keeps a filename with quotes and line breaks inside its multipart header (%s)', async (protocol) => {
+    const body = protocol === 'messages'
+      ? { type: 'file', id: 'file-m1', mime_type: 'image/png', size_bytes: 3, filename: 'm.png', created_at: '2026-01-02T03:04:05.000Z' }
+      : fileJson()
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(body), { status: 200 }))
+    const client = new DeepSeekFilesClient({ baseURL: 'https://example.test', apiKey: 'secret', protocol, fetch: fetchImpl })
+
+    await client.upload({
+      data: Uint8Array.of(1, 2, 3), mediaType: 'image/png', filename: 'a"b\r\nc.png', expiresAfterSeconds: 3_600,
+    })
+
+    const form = await uploadedForm(fetchImpl.mock.calls[0]![1])
+    expect(form.get('purpose')).toBe(protocol === 'messages' ? null : 'user_data')
+    const uploaded = form.get('file')
+    if (!(uploaded instanceof File)) throw new Error('expected multipart file')
+    expect(uploaded.name).toBe('a"b\r\nc.png')
+    expect([...await uploaded.bytes()]).toEqual([1, 2, 3])
   })
 
   it('validates list and delete responses', async () => {

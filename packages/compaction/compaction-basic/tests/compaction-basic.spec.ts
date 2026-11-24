@@ -1730,7 +1730,7 @@ describe('default one-shot summarizer', () => {
 
   it('resolves the latest routed provider/model before the AgentOptions pair', async () => {
     const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }], undefined, 'routed')
-    const session = conversation(1)
+    const session = Session.create(SessionId('routed-without-answer'))
     session.append('request/header', {
       header: { config: { provider: 'routed', model: 'routed' } },
       reason: 'initial',
@@ -1742,14 +1742,14 @@ describe('default one-shot summarizer', () => {
     expect(adapter.lastOptions?.model).toBe('routed')
   })
 
-  it('prefers the composed model-policy concrete target for a durable model/target', async () => {
+  it('prefers the composed model-policy concrete target for a durable model/target before anything has answered', async () => {
     const { ctx, compact } = await summarizerHarness([{ type: 'text', text: 'unused default summary' }])
     const policyAdapter = new ScriptedAdapter([{ type: 'text', text: 'policy summary' }])
     ctx.llm.registerAdapter(['policy-provider'], policyAdapter)
     const logicalTarget = { kind: 'model', selection: { provider: 'logical-provider', model: 'logical-model' } } as const
     const concreteTarget = vi.fn(() => ({ provider: 'policy-provider', model: 'policy-model' }))
     ctx.provide('modelPolicy', { concreteTarget })
-    const session = conversation(1)
+    const session = Session.create(SessionId('selected-without-answer'))
     session.append('request/header', {
       header: { config: { provider: 'routed', model: 'routed' } },
       reason: 'initial',
@@ -1761,6 +1761,62 @@ describe('default one-shot summarizer', () => {
     expect(output).toMatchObject({ provider: 'policy-provider', model: 'policy-model' })
     expect(concreteTarget).toHaveBeenCalledExactlyOnceWith(session, logicalTarget)
     expect(policyAdapter.lastOptions).toMatchObject({ provider: 'policy-provider', model: 'policy-model' })
+  })
+
+  it('summarizes on the route that last answered when the latest header names a route that never answered', async () => {
+    const { ctx, adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary from the answering route' }])
+    const switched = new ScriptedAdapter([{ type: 'text', text: 'unused' }])
+    ctx.llm.registerAdapter(['switched'], switched)
+    const session = conversation(1)
+    session.append('request/header', {
+      header: { config: { provider: 'switched', model: 'small-window' } },
+      reason: 'initial',
+    })
+
+    const output = await compact.runSummarize(promptInput('history'), agent(session, 'fallback'))
+
+    expect(output).toMatchObject({ provider: MODEL, model: MODEL })
+    expect(adapter.lastOptions).toMatchObject({ provider: MODEL, model: MODEL })
+    expect(switched.lastOptions).toBeUndefined()
+  })
+
+  it('summarizes on the route that last answered over a newer model/target selection', async () => {
+    const { ctx, compact } = await summarizerHarness([{ type: 'text', text: 'summary from the answering route' }])
+    const policyAdapter = new ScriptedAdapter([{ type: 'text', text: 'unused' }])
+    ctx.llm.registerAdapter(['policy-provider'], policyAdapter)
+    ctx.provide('modelPolicy', {
+      concreteTarget: () => ({ provider: 'policy-provider', model: 'policy-model' }),
+    })
+    const session = conversation(1)
+    session.append('model/target', { kind: 'model', selection: { provider: 'logical-provider', model: 'logical-model' } })
+
+    const output = await compact.runSummarize(promptInput('history'), agent(session, MODEL))
+
+    expect(output).toMatchObject({ provider: MODEL, model: MODEL })
+    expect(policyAdapter.lastOptions).toBeUndefined()
+  })
+
+  it('selects the policy override by the route that last answered', async () => {
+    const { ctx, compact } = await summarizerHarness([{ type: 'text', text: 'unused default summary' }], undefined, MODEL, {
+      auto: false,
+      modelPolicies: [{
+        provider: MODEL,
+        model: MODEL,
+        summarizationProvider: 'policy-summary',
+        summarizationModel: 'policy-summary',
+      }],
+    })
+    const policyAdapter = new ScriptedAdapter([{ type: 'text', text: 'policy summary' }])
+    ctx.llm.registerAdapter(['policy-summary'], policyAdapter)
+    const session = conversation(1)
+    session.append('request/header', {
+      header: { config: { provider: 'routed', model: 'routed' } },
+      reason: 'initial',
+    })
+
+    const output = await compact.runSummarize(promptInput('history'), agent(session, 'fallback'))
+
+    expect(output).toMatchObject({ provider: 'policy-summary', model: 'policy-summary' })
   })
 
   it('records the model actually dispatched after one-shot stream routing', async () => {

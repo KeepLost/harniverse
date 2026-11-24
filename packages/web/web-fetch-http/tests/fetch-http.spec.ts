@@ -647,6 +647,27 @@ describe('HttpFetchProvider invalid URLs and abort', () => {
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_ERROR' }))
   })
 
+  it('keeps 500 characters of a long transport failure reason', async () => {
+    // `String(error)` prefixes "Error: " (7 characters), so 493 make the reason exactly 500.
+    const exact = new Error('x'.repeat(493))
+    const exactProvider = new HttpFetchProvider(limits, {
+      resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
+      request: async () => { throw exact },
+    })
+    await expect(exactProvider.fetch({ url: 'http://public.test/' })).rejects.toThrow(
+      expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: `web fetch failed: Error: ${'x'.repeat(493)}` }),
+    )
+
+    const long = new Error('x'.repeat(501))
+    const longProvider = new HttpFetchProvider(limits, {
+      resolveHostname: async () => [{ address: '93.184.216.34', family: 4 }],
+      request: async () => { throw long },
+    })
+    await expect(longProvider.fetch({ url: 'http://public.test/' })).rejects.toThrow(
+      expect.objectContaining({ code: 'WEB_PROVIDER_ERROR', message: `web fetch failed: Error: ${'x'.repeat(493)}…`, cause: long }),
+    )
+  })
+
 })
 
 describe('HttpFetchProvider body cancellation on error paths', () => {

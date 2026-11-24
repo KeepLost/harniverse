@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { translate } from '../../src/protocols/messages/translate.ts'
 import { parseSse } from '../../src/protocols/messages/sse.ts'
 import { providerError, providerErrorDetail } from '../../src/protocols/messages/transport.ts'
-import { assemble, chunks, end, events, MODEL, sse, start, textEvents } from './helpers.ts'
+import { assemble, chunks, end, events, MODEL, settle, sse, start, textEvents } from './helpers.ts'
 
 describe('Messages stream', () => {
   it('streams text already present in the starting block', async () => {
@@ -38,6 +38,33 @@ describe('Messages stream', () => {
   it.each(['end_turn', 'stop_sequence'])('maps %s and ignores forward-compatible envelope events', async (reason) => {
     const result = await chunks(translate(events([start, { type: 'future_event' }, ...textEvents.slice(1, 4), ...end(reason)]), MODEL))
     expect(result.at(-1)).toMatchObject({ reason: { kind: 'stop' } })
+  })
+
+  it('fails a refused response with CONTENT_REFUSED after streaming its text and usage', async () => {
+    const { received, error } = await settle(translate(events([...textEvents.slice(0, 4), ...end('refusal')]), MODEL))
+    expect(error).toMatchObject({ code: 'CONTENT_REFUSED', message: 'DeepSeek refused to answer under its content safety review' })
+    expect(received.filter(chunk => chunk.type === 'text-delta')).toEqual([{ type: 'text-delta', index: 0, text: 'Hello 世界' }])
+    expect(received.at(-1)).toEqual({ type: 'usage', usage: { inputTokens: 12, outputTokens: 5 } })
+  })
+
+  it('keeps the provider explanation of a refusal', async () => {
+    const blocked = { type: 'message_delta', delta: { stop_reason: 'refusal', stop_details: { type: 'refusal', explanation: 'blocked: messages.1.content.0' } } }
+    const { received, error } = await settle(translate(events([start, blocked, { type: 'message_stop' }]), MODEL))
+    expect(error).toMatchObject({
+      code: 'CONTENT_REFUSED', message: 'DeepSeek refused to answer under its content safety review: blocked: messages.1.content.0',
+    })
+    expect(received).toEqual([{ type: 'usage', usage: { inputTokens: 12, outputTokens: 1 } }])
+  })
+
+  it.each([
+    { type: 'refusal' },
+    { type: 'refusal', explanation: '' },
+    { explanation: 7 },
+    'blocked',
+  ])('omits an absent or unusable refusal explanation %j', async (stop_details) => {
+    const refused = { type: 'message_delta', delta: { stop_reason: 'refusal', stop_details } }
+    const { error } = await settle(translate(events([start, refused, { type: 'message_stop' }]), MODEL))
+    expect(error).toMatchObject({ code: 'CONTENT_REFUSED', message: 'DeepSeek refused to answer under its content safety review' })
   })
 
   it.each([{}, { key: 'initial' }])('preserves initial tool input %j without JSON deltas', async (input) => {

@@ -19,7 +19,7 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
-import type { WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowMeta, WorkflowResult, WorkflowRun, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
+import type { WorkflowAgentEndInfo, WorkflowAgentInfo, WorkflowErrorCode, WorkflowMeta, WorkflowResult, WorkflowRun, WorkflowRunId } from '@deepseek-ai/dsh-workflow'
 import { renderThrown } from './realm.ts'
 import type { ExecutionObserver } from './runtime.ts'
 import { HostToWorkerType, WorkerToHostType } from './protocol.ts'
@@ -32,6 +32,13 @@ import type { ChildResult, ChildStartRequest, WorkerInit } from './types.ts'
  * boot as wedged and terminating despite the module-load abort hazard.
  */
 const BOOT_KILL_BACKSTOP_MS = 30_000
+
+/** Every code a worker may report on an `error` result; `satisfies` keeps the set aligned with the seam union. */
+const WORKFLOW_ERROR_CODES: ReadonlySet<string> = new Set(Object.keys({
+  SCRIPT_PARSE: true, META_INVALID: true, INVALID_ARGUMENT: true, UNSUPPORTED_OPTION: true, UNSUPPORTED_SCHEMA: true,
+  AGENT_CAP: true, ITEM_CAP: true, AGENT_START: true, AGENT_RESULT: true, RESULT_UNSERIALIZABLE: true, CANCELLED: true,
+  RUN_FAILED: true,
+} satisfies Record<WorkflowErrorCode, true>))
 
 /** One published child and its shared quiescent-disposal transaction. */
 interface ChildRecord {
@@ -519,10 +526,14 @@ export class WorkerRun implements WorkflowRun {
     if (!this.controller.signal.aborted) this.controller.abort(reason)
   }
 
-  private onResult(result: WorkflowResult): void {
+  private onResult(reported: WorkflowResult): void {
     // The owned worker session sends one Result. Keep a late duplicate or a
     // Result queued behind another terminal source completely side-effect-free.
     if (this.terminalClaimed) return
+    // The thread boundary carries JSON data: a code outside the seam union cannot be routed on, so the run keeps its
+    // failure text and the consumer classifies it without a code.
+    const { errorCode, ...uncoded } = reported
+    const result = errorCode === undefined || WORKFLOW_ERROR_CODES.has(errorCode) ? reported : uncoded
     // First-wins is decided when the Result message reaches the host. If no
     // external cancellation was already in flight, this result won. Reaping a
     // stray child below may synchronously reenter cancel() through provider
