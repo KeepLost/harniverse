@@ -17,7 +17,7 @@
 - **不依赖模型的剪枝**：随附组合会禁用可选的 [`ctx.toolResultPruner`](../compaction-tool-result-pruner/README.md) 服务，因此 compaction-basic 通常直接摘要，不会先改写工具结果。显式选择启用后，该服务会在压力或规范溢出符合条件之后、选择范围之前改写超大工具结果。Compact-basic 随后通过 `ctx.tokenMeter` 重新测量；如果压力已回到安全范围，就跳过摘要，否则对已剪枝的表层进行摘要。低于压力的步骤检查与 agent request 绝不剪枝。之后禁用该服务只会停止新的剪枝；已经追加到会话日志的替换事件及其持久表层效果不会撤销。
 - **保留**：压缩最旧的完整表层单元，同时保留近期尾部，并通过 [`dsh-compaction` 边界 helper](../compaction/README.md#tool-pairing-boundaries) 将切分点调整到工具调用／结果配对平衡的位置。轮次边界不会保护失控轮次内的旧步骤。尚未闭合且不可分的尾部会在闭合前拒绝压缩。当闭合的超大工具单元以文本型结果为可移除主体时，可选 pruner 可以修复它；不可分的非工具单元与不可剪枝的工具剩余部分不在范围内。
 - **收敛**：压力最多按 `compactionRetries` 重试头部检查点压缩；agent request 最多执行一次保留尾部替换。所有触发都拒绝不能缩小源内容的摘要；如果压力重试仍无法回到阈值以下，则抛出异常。
-- **摘要**：直接 `llm/stream` 调用使用已配置的提供方／模型对与上限，回退到最新已记录请求目标，然后再回退到 agent（智能体）目标，而不运行仅用于 agent loop 的 `agent/request` 扩展点。生效输出上限取压缩策略、匹配的对话上限、适配器在可用时解析出的模型输出能力与请求默认值，以及回放输入加最多 4,096 token 安全余量后剩余上下文空间中的最小值。摘要沿用对话模型时，会从最近一次匹配的 Provider usage 中减去未选尾部的启发式价格，把结果投影到所选前缀，再与直接估算取较大者；不同摘要模型不能复用这份与 tokenizer 相关的锚点。该调用会逐字回放会话自身的系统提示词、工具与已遮蔽区域消息（包括图片引用），并将压缩指令作为最后一条 user 消息追加，从而复用提供方的热前缀 cache，而非使它失效。所选适配器必须解析或明确拒绝这些图片。它将 `GenerateOptions.purpose` 设为 `compaction`，适配器可将其作为请求归因转发（DeepSeek 适配器发送 `x-deepseek-harness-compact: 1`），但不会触碰模型可见的请求体。reasoning 和摘要文本会在运行中通过临时进度事件增量发送给已授权的 Web UI，最终检查点仍只保留安全文本摘要。
+- **摘要**：直接 `llm/stream` 调用使用已配置的提供方／模型对与上限，回退到产生最新 assistant 消息的模型，再回退到会话持久的 model-policy 目标，然后是最新已记录请求目标，最后回退到 agent（智能体）目标，而不运行仅用于 agent loop 的 `agent/request` 扩展点。生效输出上限取压缩策略、匹配的对话上限、适配器在可用时解析出的模型输出能力与请求默认值，以及回放输入加最多 4,096 token 安全余量后剩余上下文空间中的最小值。摘要沿用对话模型时，会从最近一次匹配的 Provider usage 中减去未选尾部的启发式价格，把结果投影到所选前缀，再与直接估算取较大者；不同摘要模型不能复用这份与 tokenizer 相关的锚点。该调用会逐字回放会话自身的系统提示词、工具与已遮蔽区域消息（包括图片引用），并将压缩指令作为最后一条 user 消息追加，从而复用提供方的热前缀 cache，而非使它失效。所选适配器必须解析或明确拒绝这些图片。它将 `GenerateOptions.purpose` 设为 `compaction`，适配器可将其作为请求归因转发（DeepSeek 适配器发送 `x-deepseek-harness-compact: 1`），但不会触碰模型可见的请求体。reasoning 和摘要文本会在运行中通过临时进度事件增量发送给已授权的 Web UI，最终检查点仍只保留安全文本摘要。
 - **框定**：替换 user 消息使用 `<compacted-summary>` 标签标记已建立的检查点上下文。原始摘要保留在 `compaction/summary` 事件上，后续自动周期会合并之前的检查点。
 - **生命周期**：所有入口点共享一个先记录标记的区域事务。它会验证范围与活动锁，同步追加 `compaction/start`，准备并等待摘要，重新验证，再追加 `compaction/summary` 和替换，最后恰好进行一次闭合尝试。压力检查既发生在派生 step 之前，也发生在当前输入追加后；后者可以在发起请求前压缩，并从已提交的替换重新构建请求历史。request listener 会把 `maxTokens` 限制在模型剩余容量内；规范提供方溢出经由 `agent/request-error` 进入，先将显式输出上限减半并重试，之后才以强制压缩兜底。`compactNow()` 会等待正在运行的 agent 收敛，再预留空闲接纳，使用 `turn: null`，允许所选 span 之外追加仅追加上下文，flush 每次已闭合尝试，并在 `finally` 中释放接纳预留。
 - **路由适配预检** —— 请求监听器还会在注定失败的请求发出*之前*恢复:当测得会话超过路由窗口减去固定 1,024 token 预留时,分层循环按最老优先压缩,保留预算逐层折半(无法收缩的层——孤立检查点或看不到新跨度的预算——是反馈而非失败,继续折半),因此后续层合法地总结先前检查点并保持可传递溯源。小于等于预留的窗口只在已溢出的信封上触发。循环耗尽预算仍装不下的信封警告一次,把失败留给 provider 路径。这是模型切换与静默截断的本地 provider 的恢复路径。
@@ -35,8 +35,8 @@
 | `thresholdRatio` | 否（默认 `0.8`） | 在 `floor(routedContextWindow × ratio)` 处压缩。 |
 | `retainRatio` | 否（默认 `0.16`） | 以已路由上下文窗口的一部分表示逐字保留的近期表层预算；与 `retainTokens` 互斥。 |
 | `retainTokens` | 否 | 逐字保留的近期表层绝对预算；与 `retainRatio` 互斥，并且必须低于已解析阈值。 |
-| `summarizationProvider` | 否（默认 `''`） | 与 `summarizationModel` 一起设置；空对会解析为最新已记录请求目标，再回退到 `AgentOptions` 对。 |
-| `summarizationModel` | 否（默认 `''`） | 与 `summarizationProvider` 一起设置；空对会解析为最新已记录请求目标，再回退到 `AgentOptions` 对。 |
+| `summarizationProvider` | 否（默认 `''`） | 与 `summarizationModel` 一起设置；空对会依次使用产生最新 assistant 消息的模型、会话持久的 model-policy 目标、最新已记录请求目标，最后回退到 `AgentOptions` 对。 |
+| `summarizationModel` | 否（默认 `''`） | 与 `summarizationProvider` 一起设置；空对会依次使用产生最新 assistant 消息的模型、会话持久的 model-policy 目标、最新已记录请求目标，最后回退到 `AgentOptions` 对。 |
 | `maxTokens` | 否（默认 `32768`） | 摘要调用的上限；匹配的请求策略、模型输出能力与由 Provider 锚定的安全上下文空间可以进一步降低它。可包含推理 token。 |
 | `compactionRetries` | 否（默认 `1`） | 压力仍高于阈值时，在首次尝试后进行的额外尝试次数。 |
 | `maxOverflowRetries` | 否（默认 `1`） | 规范上下文窗口溢出后的最大重试次数；`0` 只禁用恢复。 |
@@ -160,6 +160,7 @@ Rules:
 
 ## 已知限制与暂缓事项
 
+- **不可用的应答模型不会被跳过**：会话一旦持有 assistant 消息，所有摘要（包括 `/compact` 与溢出恢复）都会交给产生最新一条消息的模型，并使用该模型的摘要设置，即使该模型已无法再提供服务。新选定的模型在应答一次之前，其摘要会在之前的模型上失败；请先发送一条提示让新模型应答，或设置优先级更高的 `summarizationProvider` 与 `summarizationModel`。
 - **没有匹配 usage 锚点时，计量准确度取决于固定启发式规则**：换用另一摘要模型或日志缺少可复用 Provider usage 时，会回退到字符数加结构开销及有界安全余量，而不是精确 token 化。
 - **溢出分类由适配器维护**：提供方措辞可能改变；两个 DeepSeek 适配器将当前可识别的上下文限制失败规范化为 `CONTEXT_WINDOW_EXCEEDED`。
 - **部分不可分单元与仅 envelope 溢出仍不在表层压缩范围内**：恢复无法缩减系统／工具／前缀、拆分不可分的非工具节点，或修复不可剪枝剩余部分仍超出窗口的工具单元。可选 pruner 可以缩减原本不可分工具对内的文本型工具结果主体。

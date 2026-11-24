@@ -11,8 +11,6 @@ import type {
   ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { effectiveModelTarget } from '@deepseek-ai/dsh-model-policy'
-import type {} from '@deepseek-ai/dsh-model-policy'
 import { estimateHeader, estimateMessage } from '@deepseek-ai/dsh-token-meter'
 import type { EpochHeader } from '@deepseek-ai/dsh-session'
 
@@ -22,6 +20,9 @@ interface SummaryConfig {
   readonly maxTokens: number
   readonly onProgress?: (phase: CompactionProgressPhase, text: string) => void
 }
+
+/** Exact provider/model pair that receives one summarization request. */
+export type SummaryRoute = Pick<GenerateOptions, 'provider' | 'model'>
 
 /** Reserve retained after request pricing to absorb tokenizer and wire framing error. */
 const CONTEXT_SAFETY_TOKENS = 4_096
@@ -129,7 +130,8 @@ export type SummaryResult = {
  * @param ctx - context providing the LLM service.
  * @param config - resolved backend configuration.
  * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
- * @param agent - supplies routed-model history, fallback model, and session id.
+ * @param agent - supplies tool history and session id.
+ * @param conversation - route used when `config` names no summary target; `undefined` when the conversation has none.
  * @param signal - optional cancellation forwarded to the adapter.
  * @param onProgress - optional transient reasoning/summary observer.
  * @returns safe text-only summary blocks and the exact call envelope and output.
@@ -139,6 +141,7 @@ export async function summarizeWithLlm(
   config: SummaryConfig,
   input: SummarizationInput,
   agent: Agent,
+  conversation: SummaryRoute | undefined,
   signal?: AbortSignal,
   onProgress?: (phase: CompactionProgressPhase, text: string) => void,
 ): Promise<SummaryResult> {
@@ -146,18 +149,7 @@ export async function summarizeWithLlm(
   const configured = config.summarizationProvider.length === 0
     ? undefined
     : { provider: config.summarizationProvider, model: config.summarizationModel }
-  const fallbackAgentTarget = agent.options.provider !== undefined
-    && agent.options.provider.length > 0
-    && agent.options.model !== undefined
-    && agent.options.model.length > 0
-    ? { provider: agent.options.provider, model: agent.options.model }
-    : undefined
-  const policy = ctx.get('modelPolicy')
-  const logicalTarget = effectiveModelTarget(agent.session.events)
-  const policyTarget = policy === undefined || logicalTarget === undefined
-    ? undefined
-    : policy.concreteTarget(agent.session, logicalTarget)
-  const target = policyTarget ?? configured ?? latest ?? fallbackAgentTarget
+  const target = configured ?? conversation
   if (target === undefined) {
     throw new Error(
       'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or set both AgentOptions fields',

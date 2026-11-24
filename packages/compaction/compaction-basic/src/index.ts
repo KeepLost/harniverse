@@ -14,6 +14,9 @@ import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { effectiveModelTarget } from '@deepseek-ai/dsh-model-policy'
+// Type-only: makes the optional sibling service available to `ctx.get()`.
+import type {} from '@deepseek-ai/dsh-model-policy'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 // Type-only: makes the optional sibling service available to `ctx.get()`.
@@ -32,7 +35,7 @@ import {
 } from './region.ts'
 import type { RegionDependencies } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
-import type { SummarizationInput, SummaryResult } from './summarizer.ts'
+import type { SummarizationInput, SummaryResult, SummaryRoute } from './summarizer.ts'
 import type {
   BasicCompactionConfig,
   ModelCompactPolicyConfig,
@@ -64,26 +67,51 @@ export type {
   ResolvedTargetPolicy,
 } from './types.ts'
 
-/** Resolve the exact provider/model durably routed for the latest request. */
-function routedTarget(
-  session: Session,
-): Pick<LlmCallConfig, 'provider' | 'model'> | undefined {
-  const config = session.requestHeader()?.config
-  if (config === undefined || config.provider.length === 0 || config.model.length === 0) {
-    return undefined
-  }
-  return { provider: config.provider, model: config.model }
+/** Detach a route that names both provider and model; any other value is no route. */
+function completeRoute(route: { provider?: string; model?: string } | undefined): SummaryRoute | undefined {
+  if (route === undefined || route.provider === undefined || route.provider.length === 0
+    || route.model === undefined || route.model.length === 0) return undefined
+  return { provider: route.provider, model: route.model }
 }
 
-/** Resolve the conversation target used to select an optional policy override. */
-function conversationTarget(
-  agent: Agent,
-): Pick<LlmCallConfig, 'provider' | 'model'> | undefined {
-  const routed = routedTarget(agent.session)
-  if (routed !== undefined) return routed
-  if (agent.options.provider === undefined || agent.options.provider.length === 0
-    || agent.options.model === undefined || agent.options.model.length === 0) return undefined
-  return { provider: agent.options.provider, model: agent.options.model }
+/** Resolve the exact provider/model durably routed for the latest request. */
+function routedTarget(session: Session): SummaryRoute | undefined {
+  return completeRoute(session.requestHeader()?.config)
+}
+
+/**
+ * Resolve the route recorded on the latest `assistant/message`. That route
+ * has held this history; the latest header may name a route whose only
+ * request overflowed.
+ * @param session - session whose log is read back from its newest assistant message.
+ * @returns the answering route, or `undefined` before the first assistant message.
+ */
+function answeredTarget(session: Session): SummaryRoute | undefined {
+  const events = session.events
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event?.type === 'assistant/message') return completeRoute(event.data.message.source)
+  }
+  return undefined
+}
+
+/**
+ * Resolve the route that summarizes the conversation and selects its policy
+ * override: the route that last answered, then the composed model-policy
+ * concrete target for the durable `model/target`, then the latest request
+ * header, then the agent options.
+ * @param ctx - context whose optional `modelPolicy` service resolves the durable target.
+ * @param agent - supplies the session history, fallback model, and session id.
+ * @returns the first complete route in that order.
+ */
+function conversationTarget(ctx: Context, agent: Agent): SummaryRoute | undefined {
+  const policy = ctx.get('modelPolicy')
+  const logicalTarget = effectiveModelTarget(agent.session.events)
+  const policyTarget = policy === undefined || logicalTarget === undefined
+    ? undefined
+    : policy.concreteTarget(agent.session, logicalTarget)
+  return answeredTarget(agent.session) ?? completeRoute(policyTarget)
+    ?? routedTarget(agent.session) ?? completeRoute(agent.options)
 }
 
 /** Wait for an active turn to settle while preserving command cancellation. */
@@ -382,9 +410,13 @@ export class BasicCompactionEngine extends CompactionEngine {
    * Summarize the replayed conversation region through a direct one-shot
    * `ctx.llm.stream()` call whose prefix reuses the conversation's own system
    * prompt, tools, and messages so the provider's KV cache is not invalidated.
+   * Without a configured summary target the call goes to the route that
+   * produced the latest assistant message, then the session's durable target,
+   * then the latest request header, then the agent options. A model selected
+   * for a later request is not used.
    * Override this sole hook for a template or remote summarizer.
    * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
-   * @param agent - supplies routed-model history, fallback model, and session id.
+   * @param agent - supplies the session history, fallback model, and session id.
    * @param signal - optional cancellation forwarded to the adapter.
    * @returns safe text summary blocks and the exact auxiliary call envelope and output.
    */
@@ -394,11 +426,11 @@ export class BasicCompactionEngine extends CompactionEngine {
     signal?: AbortSignal,
     onProgress?: (phase: CompactionProgressPhase, text: string) => void,
   ): Promise<SummaryResult> {
-    const target = conversationTarget(agent)
+    const target = conversationTarget(this.ctx, agent)
     const config = target === undefined
       ? this.config
       : this.targetPolicy(target)
-    return summarizeWithLlm(this.ctx, config, input, agent, signal, onProgress)
+    return summarizeWithLlm(this.ctx, config, input, agent, target, signal, onProgress)
   }
 
   /**
