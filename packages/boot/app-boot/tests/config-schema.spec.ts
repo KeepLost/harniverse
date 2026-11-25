@@ -271,6 +271,15 @@ describe('collectConfigSchemas', () => {
     expect(result['x-cordis'].diagnostics).toEqual([{ level: 'warning', path: '/1', message: 'patch: entry "unknown" not found' }])
   })
 
+  it.runIf(process.platform === 'win32')('reads a drive-letter include path as a file path', async () => {
+    const childDir = join(dir, 'child')
+    mkdirSync(childDir)
+    writeFileSync(join(childDir, 'list.yml'), '- id: a\n  name: noop\n')
+    const result = await collectConfigSchemas(profile, [row('cordis:include', { path: join(childDir, 'list.yml') })])
+    expect(result['x-cordis'].diagnostics).toEqual([])
+    expect(result['x-cordis'].entries.map(entry => entry.path)).toEqual(['/0', '/0/include/0'])
+  })
+
   it('expands initial entries in memory without writing missing include files', async () => {
     const result = await collectConfigSchemas(profile, [row('cordis:include', {
       path: './missing.yml', initial: [row('noop')], patches: [{ insert: [row('noop')] }],
