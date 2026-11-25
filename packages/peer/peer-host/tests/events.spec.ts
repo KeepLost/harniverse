@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { PEER_NONCE_TTL_MS, PEER_STREAM_TOKEN_TTL_MS } from '@deepseek-ai/dsh-peer-protocol'
 import { encodePeerEventFrame, PeerNonceLedger, PeerStreamTokens, runPeerEventStream } from '../src/events.ts'
@@ -76,6 +76,9 @@ function turnEnd(): SessionEvent {
   return { type: 'turn/end', data: { turn: 't1', reason: { kind: 'completed' } } } as SessionEvent
 }
 
+/** The pump reads the registry before it listens; a loaded runner outruns any fixed sleep. */
+const LISTENING = { timeout: 10_000, interval: 5 }
+
 /** One non-settlement event for filter coverage. */
 function turnStart(): SessionEvent {
   return { type: 'turn/start', data: { turn: 't1' } } as SessionEvent
@@ -96,11 +99,10 @@ it('streams settlement frames for owned sessions with heartbeats until aborted',
     write: (chunk) => { written.push(chunk) },
     signal: controller.signal,
   })
-  await new Promise(resolve => setTimeout(resolve, 12))
+  await vi.waitFor(() => { expect(written).toContain(': peer\n\n') }, LISTENING)
   emit(ctx, sessionId, turnStart())
   emit(ctx, 'peer-other-session', turnEnd())
   emit(ctx, sessionId, turnEnd())
-  await new Promise(resolve => setTimeout(resolve, 25))
   controller.abort()
   await expect(done).resolves.toBe('closed')
   expect(written).toContain(encodePeerEventFrame({ kind: 'settled', sessionId }))
@@ -126,8 +128,10 @@ it('guards sends after a broken write and after an external abort', async () => 
     },
     signal: controller.signal,
   })
-  await new Promise(resolve => setTimeout(resolve, 5))
-  emit(ctx, sessionId, turnEnd())
+  await vi.waitFor(() => {
+    emit(ctx, sessionId, turnEnd())
+    expect(attempts).toHaveLength(1)
+  }, LISTENING)
   broken = true
   // The first broken send aborts the pump; a second synchronous event hits the guard.
   emit(ctx, sessionId, turnEnd())
@@ -142,13 +146,16 @@ it('guards sends after a broken write and after an external abort', async () => 
     write: (chunk) => { seen.push(chunk) },
     signal: second.signal,
   })
-  await new Promise(resolve => setTimeout(resolve, 5))
+  await vi.waitFor(() => {
+    emit(ctx, sessionId, turnEnd())
+    expect(seen).toHaveLength(1)
+  }, LISTENING)
   second.abort()
   // A queued event between the abort and the pump's cleanup still reaches the
   // sink; the send's try keeps that late write contained.
   emit(ctx, sessionId, turnEnd())
   await expect(pump).resolves.toBe('closed')
-  expect(seen).toHaveLength(1)
+  expect(seen).toHaveLength(2)
 })
 
 it('stops writing once the registry drops the session, and reports write failures', async () => {
@@ -169,17 +176,22 @@ it('stops writing once the registry drops the session, and reports write failure
     },
     signal: controller.signal,
   })
-  await new Promise(resolve => setTimeout(resolve, 12))
+  const frames = (): number => written.filter(chunk => chunk.startsWith('data: ')).length
+  await vi.waitFor(() => { expect(written).toContain(': peer\n\n') }, LISTENING)
   emit(ctx, sessionId, turnEnd())
-  expect(written.filter(chunk => chunk.startsWith('data: '))).toHaveLength(1)
-  // The heartbeat refresh picks up the registry rewrite; later events stay unsent.
+  expect(frames()).toBe(1)
+  // The heartbeat refresh picks up the registry rewrite: probed events stop being delivered.
   const registry = await import('../src/session-registry.ts')
   await registry.writePeerSessions(root, [])
-  await new Promise(resolve => setTimeout(resolve, 25))
+  await vi.waitFor(() => {
+    const before = written.length
+    emit(ctx, sessionId, turnEnd())
+    expect(written).toHaveLength(before)
+  }, LISTENING)
+  // Later events stay unsent.
+  const settled = frames()
   emit(ctx, sessionId, turnEnd())
-  await new Promise(resolve => setTimeout(resolve, 5))
-  expect(written.filter(chunk => chunk.startsWith('data: '))).toHaveLength(1)
+  expect(frames()).toBe(settled)
   broken = true
-  emit(ctx, sessionId, turnEnd())
   await expect(done).resolves.toBe('write-failed')
 })
