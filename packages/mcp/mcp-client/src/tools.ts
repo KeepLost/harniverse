@@ -241,6 +241,8 @@ export function publicToolName(serverName: string, rawName: string): string {
  *   during the swap phase (only after the fetch phase succeeded).
  * @param isCurrent - connection ownership guard checked before every page and publication.
  * @param published - synchronous observer that installs captured restrictions before yielding.
+ * @param authorize - guard judged before every call of this generation; it answers the
+ *   coded error a call receives while the connection cannot authenticate, or `undefined`.
  * @returns A map of registered public tool names to their unregister
  *   disposers — the exact set of live registrations owned by this server.
  */
@@ -251,6 +253,7 @@ export async function syncTools(
   previous: ToolDisposers,
   isCurrent: () => boolean = () => true,
   published: (next: ToolDisposers) => void = () => {},
+  authorize: () => Error | undefined = () => undefined,
 ): Promise<ToolDisposers> {
   // Phase 1: fetch and build the next generation without touching the registry.
   // Descriptor raw-name uniqueness (and therefore public-name uniqueness — the
@@ -259,8 +262,10 @@ export async function syncTools(
   if (!isCurrent()) return previous
   const definitions = new Map<string, ToolDefinition>()
   for (const descriptor of descriptors) {
-    const definition = descriptorToDefinition(opts.serverName, descriptor, (rawName, args, exec) =>
-      callToolUncached(client, rawName, args, exec, opts))
+    const definition = descriptorToDefinition(opts.serverName, descriptor, (rawName, args, exec) => {
+      const waiting = authorize()
+      return waiting === undefined ? callToolUncached(client, rawName, args, exec, opts) : Promise.reject(waiting)
+    })
     definitions.set(definition.name, definition)
   }
 

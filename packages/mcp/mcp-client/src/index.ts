@@ -18,9 +18,15 @@ import type {} from '@deepseek-ai/dsh-capabilities'
 import { DEFAULT_MAX_INSTRUCTION_BYTES, resolveReconnectPolicy, startConnection } from './connection.ts'
 import { exposeScopedServer } from './exposure.ts'
 
+import { oauthConfigOf } from './oauth-options.ts'
 import type { Config } from './config.ts'
 export { Config } from './config.ts'
-export type { StdioConfig, StreamableHttpConfig } from './config.ts'
+export type { OAuthConfig, OAuthInput, StdioConfig, StreamableHttpConfig } from './config.ts'
+export { McpAuthorizationRequired, McpLocalError } from './oauth-errors.ts'
+export type { McpAuthorizationReason, McpLocalErrorCode } from './oauth-errors.ts'
+export type { McpOAuthFlow } from './oauth-flow.ts'
+export type { McpConnectionOAuth, McpOAuthAuthorizationState } from './oauth-session.ts'
+export type { McpOAuthCredentialStore } from './oauth-store.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
@@ -104,6 +110,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (!Number.isSafeInteger(instructionBytes) || instructionBytes < 1) {
     throw new Error('mcp-client: maxInstructionBytes must be a positive safe integer')
   }
+  // The same fail-loud rule covers OAuth: an `oauth` field the SDK cannot
+  // run with (an Authorization header on the same entry, a plain-HTTP remote
+  // endpoint) rejects THIS instance before any effect registers.
+  oauthConfigOf(config, `mcp-client(${config.serverName})`)
 
   // Reserve the namespace next: a duplicate `serverName` fails THIS instance
   // at load with an actionable error and leaves the earlier instance intact.

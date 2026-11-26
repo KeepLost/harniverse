@@ -45,6 +45,19 @@ The direct `cordis.yml` rows above are the standalone mode: one plugin instance 
 - `probeServer(config, options)` is a one-shot configuration test: connect, read the server identity, page through tool names under explicit caps (`timeoutMs` whole-probe budget, `maxPages`, `maxToolNames`, `signal`), close under a bounded grace. It registers nothing and reserves no namespace; failures return a stage-classified `McpProbeResult` (`./types`) with an independently settled cleanup outcome instead of throwing. `mcpManagement.probe` serves it to the settings page.
 - `exposeScopedServer` is the single exposure path both modes share: server prompt context, capability adapter, and resource publishing are derived from the same descriptors, so a registrar's model-facing surface is byte-identical to a standalone instance of the same server.
 
+## OAuth
+
+A Streamable HTTP entry with `oauth` authenticates through OAuth 2.1 instead of a static header, and its connection is passive: it never opens a browser, registers a client, or redirects. It reads one grant record per server through the credentials seam (`ctx.credentials`, read structurally) under the reference `mcp_oauth_<hex of the server key>` — the settings id of a shared owner, or the `serverName` of a standalone row. The record is one self-contained, versioned JSON document that binds the endpoint URL, the authorization server, the client information, and the tokens to each other; no token is ever presented to another endpoint or another authorization server.
+
+- Without a usable grant the connection rests in `waiting-authorization` instead of retrying. The reason is `missing`, `expired`, `binding` (the grant was issued for another endpoint, client id, or scope), `rejected`, or `scope`; tool and resource calls fail with an `McpLocalError` whose code is `MCP_AUTHORIZATION_REQUIRED` and whose message is `MCP OAuth requires authorization: <reason>`, while the last good tool inventory stays listed.
+- An access token past its deadline is refreshed before the next request. Refreshes are single-flight and serialized per grant reference for the whole process, and a sign-out or a newly committed grant queues behind a refresh of the same record; a definitive refusal moves the connection to `waiting-authorization`, while a transient failure stays with the ordinary reconnect loop.
+- A request refused with 401 is retried once after one forced refresh: a repeated 401 is `rejected`, and a 403 `insufficient_scope` is `scope`. Only requests to the endpoint's own origin carry the bearer and the configured headers; OAuth protocol requests carry neither.
+- Every OAuth request and redirect URI must be HTTPS, or HTTP on a loopback host; an `oauth` entry whose endpoint is plain HTTP to another host is refused when the config resolves.
+- `probeServer(config, { oauth })` attaches the stored grant when the caller supplies its credentials seam and otherwise reports the missing grant as a connect failure; the probe never starts an authorization.
+- After an explicit authorization commits, the connection's `oauth.resume()` makes the supervisor re-judge the grant and connect again; a sign-out clears the grant and brings a connected generation down through the waiting hook.
+
+The explicit authorization itself — discovery, dynamic client registration or the configured `clientId`, the PKCE authorization request, and the code exchange — is owned by [`dsh-mcp-user-config`](../mcp-user-config/README.md) and reaches this package through the `oauth` capability of the shared connection.
+
 ## Config
 
 | Field | Transport | Required | Description |
@@ -57,7 +70,8 @@ The direct `cordis.yml` rows above are the standalone mode: one plugin instance 
 | `env` | stdio | no | Extra env vars merged on top of scrubbed ambient env |
 | `cwd` | stdio | no | Working directory for the child process |
 | `url` | http | yes | MCP server URL |
-| `headers` | http | no | Extra headers (e.g. auth tokens) |
+| `headers` | http | no | Extra headers (e.g. auth tokens); an `Authorization` header cannot be combined with `oauth` |
+| `oauth` | http | no | OAuth 2.1 authorization: `true` selects every default; an object sets `clientId`, `scope`, `requestTimeoutMs` (default 10000), and `authorizationTimeoutMs` (default 600000) |
 | `toolCallTimeoutMs` | both | no | Timeout per `callTool` invocation (default 60000) |
 | `maxInstructionBytes` | both | no | Byte budget for the server's captured instructions, attributed header included (default 32768) |
 | `failOnStartupError` | both | no | Reject plugin activation when initial connection or tool synchronization fails (default `false`) |
@@ -98,6 +112,7 @@ Every MCP tool has two names: the raw MCP name (sent on the wire in `tools/call`
 | `ctx.capabilities` | Optionally publish server identity and apply Profile-generation selection |
 | `ctx.mcpResources` | Optionally publish the server's resource provider (via `dsh-mcp-resources`) |
 | `ctx.systemPrompt` | Optionally register the attributed server-instructions section |
+| `ctx.credentials` | Optionally store and read OAuth grant records (read structurally; no package dependency) |
 
 ## Model Experience
 
@@ -119,7 +134,7 @@ Prefix-stable while the discovered tool set and schemas are unchanged. A re-sync
 
 #### What the model sees
 
-The public tool name and JSON arguments remain in assistant history. Text result blocks are joined with newlines into one retained Native text result; image, audio, resource, and unsupported blocks become short placeholders there. Their full JSON blocks and optional structured content remain in the execution-local canonical value, and MCP `isError` rejects the call through the registry's error path.
+The public tool name and JSON arguments remain in assistant history. Text result blocks are joined with newlines into one retained Native text result; image, audio, resource, and unsupported blocks become short placeholders there. Their full JSON blocks and optional structured content remain in the execution-local canonical value, and MCP `isError` rejects the call through the registry's error path. While an OAuth-configured server waits for authorization, its calls fail with `MCP OAuth requires authorization: <reason>`.
 
 #### Token effect
 
@@ -152,3 +167,6 @@ Prefix-stable while instructions and the visible member set are unchanged. A rec
 - **Reconnect triggers on transport close** — a crashed stdio child fires it; Streamable HTTP failures surface per request and through the SDK transport's own SSE-stream recovery, so an unreachable HTTP server is retried per call rather than respawned by the supervisor.
 - **Native non-text rendering is lossy** — image, audio, and resource payloads become placeholders in model context even though the execution-local canonical value preserves their JSON blocks. Richer Native multimedia projection is deferred.
 - **Unsupported MCP output schemas are not enforced** — `structuredContent` falls back to `JsonValue` when the advertised schema uses vocabulary outside the harness subset.
+- **Standalone rows have no in-process authorization path** — a `cordis.yml` row with `oauth` only uses a grant already stored under its `serverName`; the settings page authorizes fleet entries only.
+- **A grant is bound to its endpoint and OAuth options** — changing `url`, `clientId`, or `scope` moves the connection to `waiting-authorization` with reason `binding` until the user authorizes again; signing out clears the stale grant.
+- **An external edit of a grant record is not observed while the connection waits** — the credentials change event is not consumed, so the connection re-judges the grant on its next mount or `resume()`.

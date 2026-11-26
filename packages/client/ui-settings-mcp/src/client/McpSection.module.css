@@ -117,6 +117,23 @@
   font-size: 12px;
 }
 
+/* The authorization page link on a server card. */
+
+.oauthLink {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--dsw-alias-brand-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.oauthLink:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
 /* The expandable tool inventory. */
 
 .tools {

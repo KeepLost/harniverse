@@ -10,7 +10,11 @@ import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
+import { OAuthField } from './oauth-options.ts'
+import type { OAuthInput } from './oauth-options.ts'
 import { MCP_SERVER_NAME_PATTERN } from './resource-contract.ts'
+
+export type { OAuthConfig, OAuthInput } from './oauth-options.ts'
 
 /** Config for connecting to an MCP server via a spawned child process over stdio. */
 export interface StdioConfig {
@@ -59,8 +63,18 @@ export interface StreamableHttpConfig {
   reservationKey?: string | undefined
   /** MCP endpoint URL. */
   url: string
-  /** Additional headers attached to MCP requests. */
+  /**
+   * Additional headers attached to MCP requests. An `Authorization` header
+   * cannot be combined with `oauth`.
+   */
   headers: Record<string, string>
+  /**
+   * OAuth 2.1 authorization for this endpoint: `true` selects every default,
+   * an object overrides the client id, scope, and budgets. OAuth owns the
+   * `Authorization` header; a connection without a stored grant waits for an
+   * explicit authorization instead of connecting.
+   */
+  oauth?: OAuthInput
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -101,6 +115,7 @@ export const Config = z.union([
     reservationKey: z.string(),
     url: z.string().required(),
     headers: z.dict(String).default({}),
+    oauth: OAuthField,
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),

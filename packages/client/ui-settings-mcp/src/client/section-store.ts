@@ -3,15 +3,21 @@
  * `mcp` settings scope (the durable server rows), the mcpManagement Remote
  * (live connection status), and per-preset capability selection (which
  * compositions expose each server). Writes ride the settings scope; the
- * restart rides the Remote.
+ * restart, the OAuth authorization, and the sign-out ride the Remote.
  *
  * @module
  */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
-import type { McpManagementStatusRow } from '@deepseek-ai/dsh-mcp-user-config/types'
+import type { McpAuthorizationStart, McpManagementStatusRow } from '@deepseek-ai/dsh-mcp-user-config/types'
 import type { McpProbeResult } from '@deepseek-ai/dsh-mcp-client/types'
+
+/** OAuth options of a Streamable HTTP settings row; `true` selects every default. */
+export type McpOauthOptions = true | { clientId?: string; scope?: string; requestTimeoutMs?: number; authorizationTimeoutMs?: number }
+
+/** One Remote call as the section receives it: a value, or the failure message the page renders. */
+export type RemoteCarrier<T> = Promise<{ ok: true; value: T } | { ok: false; error: { message: string } }>
 
 /** One server row the page renders: the settings entry joined with live state. */
 export interface McpServerRow {
@@ -53,9 +59,13 @@ export interface McpSectionState {
   writable: boolean
   /** Probe outcomes by server id; absent ids carry no probe view. */
   probes: Readonly<Record<string, McpProbeView>>
+  /** Authorization pages by server id, kept while each attempt waits for the browser. */
+  authorizationUrls: Readonly<Record<string, string>>
+  /** Why the Host refused the latest authorization request of a server, by id. */
+  authorizationErrors: Readonly<Record<string, string>>
 }
 
-const INITIAL: McpSectionState = { status: 'idle', rows: undefined, writable: false, probes: {} }
+const INITIAL: McpSectionState = { status: 'idle', rows: undefined, writable: false, probes: {}, authorizationUrls: {}, authorizationErrors: {} }
 
 /** How the joined status view is refreshed while the page is open. */
 const STATUS_POLL_MS = 5_000
@@ -77,17 +87,24 @@ export interface McpSettingsServers {
     toolCallTimeoutMs?: number
     maxInstructionBytes?: number
     failOnStartupError?: boolean
+    oauth?: McpOauthOptions
   }>
 }
 
 /** Face the controller reads live fleet state through. */
 export interface McpStatusFace {
   /** List every fleet server's live state. */
-  status: () => Promise<{ ok: true; value: readonly McpManagementStatusRow[] } | { ok: false; error: { message: string } }>
+  status: () => RemoteCarrier<readonly McpManagementStatusRow[]>
   /** Restart one enabled server's shared connection. */
-  restart: (serverId: string) => Promise<{ ok: true; value: void } | { ok: false; error: { message: string } }>
+  restart: (serverId: string) => RemoteCarrier<void>
   /** Test one server's configuration without mounting an owner. */
-  probe: (serverId: string) => Promise<{ ok: true; value: McpProbeResult } | { ok: false; error: { message: string } }>
+  probe: (serverId: string) => RemoteCarrier<McpProbeResult>
+  /** Begin or join the explicit OAuth authorization of one server. */
+  startAuthorization: (serverId: string, redirectOrigin: string | undefined) => RemoteCarrier<McpAuthorizationStart>
+  /** Cancel the pending OAuth authorization of one server. */
+  cancelAuthorization: (serverId: string) => RemoteCarrier<void>
+  /** Delete the stored OAuth grant of one server. */
+  signOut: (serverId: string) => RemoteCarrier<void>
 }
 
 /** Face the controller reads per-preset exposure through. */
@@ -165,6 +182,10 @@ export class McpSectionController {
       this.readPresetExposure().catch(() => new Map<string, readonly string[]>()),
     ])
     const byId = new Map((statusRows ?? []).map(row => [row.id, row]))
+    // An authorization page lives exactly as long as its attempt waits for the browser.
+    const urls = this.store.getSnapshot().authorizationUrls
+    const authorizationUrls = statusRows === undefined ? urls : Object.fromEntries(Object.entries(urls)
+      .filter(([id]) => byId.get(id)?.attempt?.phase === 'waiting-browser'))
     const rows: McpServerRow[] = settingsRows.map((entry) => {
       const status = byId.get(entry.id)
       return {
@@ -191,7 +212,7 @@ export class McpSectionController {
         status,
       })
     }
-    this.publish({ status: 'ready', rows, writable: snapshot.writable })
+    this.publish({ status: 'ready', rows, writable: snapshot.writable, authorizationUrls })
   }
 
   /** Immediate re-join after the Host reported a fleet change. */
@@ -241,6 +262,54 @@ export class McpSectionController {
     this.publish({ probes: { ...this.store.getSnapshot().probes, [serverId]: view } })
   }
 
+  /**
+   * Begin or join the explicit OAuth authorization of one server.
+   *
+   * @param serverId - Stable id of the OAuth-configured server.
+   * @param redirectOrigin - Origin this page is served from; the Host validates it before it advertises the redirect.
+   * @returns The authorization page to open, or undefined when the Host refused the request (the row then shows why).
+   */
+  async authorize(serverId: string, redirectOrigin: string | undefined): Promise<string | undefined> {
+    const previous = this.store.getSnapshot()
+    this.publish({ authorizationErrors: without(previous.authorizationErrors, serverId) })
+    const result = await settle(this.statusFace.startAuthorization(serverId, redirectOrigin))
+    if (result.ok) {
+      this.publish({ authorizationUrls: { ...this.store.getSnapshot().authorizationUrls, [serverId]: result.value.authorizationUrl } })
+    } else {
+      this.publish({ authorizationErrors: { ...this.store.getSnapshot().authorizationErrors, [serverId]: result.error.message } })
+    }
+    await this.refresh()
+    return result.ok ? result.value.authorizationUrl : undefined
+  }
+
+  /**
+   * Cancel the pending OAuth authorization of one server.
+   *
+   * @param serverId - Stable id of the server.
+   */
+  async cancelAuthorization(serverId: string): Promise<void> {
+    await this.authorizationCall(serverId, () => this.statusFace.cancelAuthorization(serverId))
+  }
+
+  /**
+   * Delete the stored OAuth grant of one server.
+   *
+   * @param serverId - Stable id of the server.
+   */
+  async signOut(serverId: string): Promise<void> {
+    await this.authorizationCall(serverId, () => this.statusFace.signOut(serverId))
+  }
+
+  /** Run one authorization Remote call, surface its refusal on the row, and re-join the fleet. */
+  private async authorizationCall(serverId: string, call: () => RemoteCarrier<void>): Promise<void> {
+    const result = await settle(call())
+    if (!result.ok) {
+      const errors = this.store.getSnapshot().authorizationErrors
+      this.publish({ authorizationErrors: { ...errors, [serverId]: result.error.message } })
+    }
+    await this.refresh()
+  }
+
   /** Current writable state for disabling controls. */
   get writable(): boolean {
     return this.store.getSnapshot().writable
@@ -263,6 +332,19 @@ export class McpSectionController {
     }
     return joined
   }
+}
+
+/** One record without one key. */
+function without<T>(record: Readonly<Record<string, T>>, key: string): Readonly<Record<string, T>> {
+  return Object.fromEntries(Object.entries(record).filter(([id]) => id !== key))
+}
+
+/** One Remote call settled into a value or a failure message, whatever it rejected with. */
+async function settle<T>(carrier: RemoteCarrier<T>): Promise<{ ok: true; value: T } | { ok: false; error: { message: string } }> {
+  return carrier.catch((error: unknown) => ({
+    ok: false as const,
+    error: { message: error instanceof Error ? error.message : String(error) },
+  }))
 }
 
 /** Locale parameters summarizing one probe outcome for the card. */

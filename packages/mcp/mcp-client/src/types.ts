@@ -6,6 +6,8 @@
  * @module
  */
 
+import type { McpOAuthCredentialStore } from './oauth-store.ts'
+
 /** Options for one probeServer call. */
 export interface McpProbeOptions {
   /** Budget for the whole probe (connect + listing) in milliseconds; default 10000. */
@@ -19,6 +21,13 @@ export interface McpProbeOptions {
    * bounded closure.
    */
   readonly signal?: AbortSignal
+  /**
+   * Credentials seam an OAuth-configured entry's probe reads its stored grant
+   * through. The probe attaches that grant when one is stored and never
+   * starts an authorization; without a store the probe reports the missing
+   * grant as a connect failure.
+   */
+  readonly oauth?: McpOAuthCredentialStore
 }
 
 /** Stage a probe failure is classified under. */

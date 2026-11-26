@@ -49,8 +49,20 @@ const STATUS: McpManagementStatusRow = {
   tools: [{ name: 'search', description: 'Search the docs' }],
 }
 
+/** An OAuth server whose grant expired and whose connection therefore waits. */
+const OAUTH_ROW: McpManagementStatusRow = {
+  id: 'web',
+  serverName: 'web',
+  transport: 'streamable-http',
+  state: 'waiting-authorization',
+  failedAttempts: 0,
+  maxAttempts: 8,
+  tools: [],
+  authorization: { state: 'waiting-authorization', reason: 'expired' },
+}
+
 function readyState(rows: readonly McpServerRow[]): McpSectionState {
-  return { status: 'ready', rows, writable: true, probes: {} }
+  return { status: 'ready', rows, writable: true, probes: {}, authorizationUrls: {}, authorizationErrors: {} }
 }
 
 /**
@@ -66,6 +78,9 @@ function renderSection(state: McpSectionState, settingsServers: readonly Setting
     writeServers: vi.fn((servers: readonly unknown[]) => { void servers; return Promise.resolve() }),
     restart: vi.fn(() => Promise.resolve(undefined)),
     probe: vi.fn(() => Promise.resolve()),
+    authorize: vi.fn(() => Promise.resolve('https://as.example/authorize?state=s')),
+    cancelAuthorization: vi.fn(() => Promise.resolve()),
+    signOut: vi.fn(() => Promise.resolve()),
   }
   const props = {
     ...actions,
@@ -84,16 +99,16 @@ describe('McpSection page', () => {
   })
 
   it('shows the loading notice before the first read and the error notice when the scope is unavailable', () => {
-    const { unmount } = renderSection({ status: 'loading', rows: undefined, writable: false, probes: {} })
+    const { unmount } = renderSection({ status: 'loading', rows: undefined, writable: false, probes: {}, authorizationUrls: {}, authorizationErrors: {} })
     expect(screen.getByText(en['loading'])).toBeDefined()
     unmount()
 
-    renderSection({ status: 'error', rows: undefined, writable: false, probes: {} })
+    renderSection({ status: 'error', rows: undefined, writable: false, probes: {}, authorizationUrls: {}, authorizationErrors: {} })
     expect(screen.getByText(en['error'])).toBeDefined()
   })
 
   it('renders one card per row and disables every write action while read-only', () => {
-    renderSection({ status: 'ready', rows: [{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: ['standard'], registered: false, status: STATUS }], writable: false, probes: {} })
+    renderSection({ status: 'ready', rows: [{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: ['standard'], registered: false, status: STATUS }], writable: false, probes: {}, authorizationUrls: {}, authorizationErrors: {} })
     expect(screen.getAllByText('docs').length).toBeGreaterThan(0)
     expect(screen.getByText(t('row.presets', { names: 'standard' }))).toBeDefined()
     expect(screen.getByText(t('row.tools', { count: '1' }))).toBeDefined()
@@ -147,6 +162,9 @@ describe('ServerRow card', () => {
     requestDelete: vi.fn(),
     restart: vi.fn(() => Promise.resolve(undefined)),
     probe: vi.fn(() => Promise.resolve()),
+    authorize: vi.fn(() => Promise.resolve(undefined)),
+    cancelAuthorization: vi.fn(() => Promise.resolve()),
+    signOut: vi.fn(() => Promise.resolve()),
   }
 
   it.each([
@@ -204,6 +222,83 @@ describe('ServerRow card', () => {
     expect(screen.getByText(expected)).toBeDefined()
   })
 
+  it('renders no OAuth controls for a server that carries no OAuth state', () => {
+    render(<ServerRow row={{ id: 'docs', serverName: 'docs', transport: 'streamable-http', enabled: true, presets: [], registered: false, status: STATUS }} writable probe={undefined} t={t} actions={actions} />)
+    expect(screen.queryByRole('button', { name: en['oauth.authorize'] })).toBeNull()
+    expect(screen.queryByRole('button', { name: en['oauth.signOut'] })).toBeNull()
+    expect(screen.queryByText(en['state.waiting-authorization'])).toBeNull()
+  })
+
+  it('bands a connection waiting for authorization', () => {
+    render(<ServerRow row={{ id: 'web', serverName: 'web', transport: 'streamable-http', enabled: true, presets: [], registered: false, status: OAUTH_ROW }} writable probe={undefined} t={t} actions={actions} />)
+    expect(screen.getByText(en['state.waiting-authorization'])).toBeDefined()
+    expect(screen.queryByText(en['state.stopped'])).toBeNull()
+  })
+
+  it('drives authorize, cancel, sign out, and the authorization page from the OAuth line', async () => {
+    const oauth = {
+      ...actions,
+      authorize: vi.fn(() => Promise.resolve('https://as.example/authorize?state=s')),
+      cancelAuthorization: vi.fn(() => Promise.resolve()),
+      signOut: vi.fn(() => Promise.resolve()),
+    }
+    const row: McpServerRow = { id: 'web', serverName: 'web', transport: 'streamable-http', enabled: true, presets: [], registered: false, status: OAUTH_ROW }
+    const props = { writable: true, probe: undefined, t, actions: oauth }
+    const { rerender } = render(<ServerRow row={row} authorizationUrl={undefined} authorizationError={undefined} {...props} />)
+    expect(screen.getByText(t('oauth.waiting', { reason: en['oauth.reason.expired'] }))).toBeDefined()
+    const authorize = screen.getByRole('button', { name: en['oauth.authorize'] }) as HTMLButtonElement
+    expect(authorize.disabled).toBe(false)
+    await act(async () => { fireEvent.click(authorize) })
+    expect(oauth.authorize).toHaveBeenCalledWith('web')
+    expect(screen.queryByRole('link', { name: en['oauth.open'] })).toBeNull()
+
+    // The attempt waits for the browser: the page link is the way forward and authorize yields to cancel.
+    const waiting = { ...row, status: { ...OAUTH_ROW, attempt: { id: 'a1', phase: 'waiting-browser' as const, expiresAtMs: 9 } } }
+    rerender(<ServerRow row={waiting} authorizationUrl="https://as.example/authorize?state=s" authorizationError={undefined} {...props} />)
+    const link = screen.getByRole('link', { name: en['oauth.open'] }) as HTMLAnchorElement
+    expect(link.href).toBe('https://as.example/authorize?state=s')
+    expect(link.target).toBe('_blank')
+    expect(link.rel).toBe('noopener noreferrer')
+    expect(screen.getByText(en['oauth.attempt.waiting-browser'])).toBeDefined()
+    // A pending attempt offers cancellation only; authorization resumes once it settled.
+    expect(screen.queryByRole('button', { name: en['oauth.authorize'] })).toBeNull()
+    const control1 = screen.getByRole('button', { name: en['oauth.signOut'] })
+    expect((control1 as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['oauth.cancel'] })) })
+    expect(oauth.cancelAuthorization).toHaveBeenCalledWith('web')
+
+    for (const [phase, copy] of [['exchanging', en['oauth.attempt.exchanging']], ['committing', en['oauth.attempt.committing']], ['starting', en['oauth.attempt.starting']]] as const) {
+      rerender(<ServerRow row={{ ...waiting, status: { ...OAUTH_ROW, attempt: { id: 'a1', phase, expiresAtMs: 9 } } }} authorizationUrl={undefined} authorizationError={undefined} {...props} />)
+      expect(screen.getByText(copy)).toBeDefined()
+    }
+    // A settled attempt reports its outcome and hands control back.
+    for (const [phase, copy] of [['failed', en['oauth.attempt.failed']], ['cancelled', en['oauth.attempt.cancelled']]] as const) {
+      rerender(<ServerRow row={{ ...waiting, status: { ...OAUTH_ROW, attempt: { id: 'a1', phase, expiresAtMs: 9 } } }} authorizationUrl={undefined} authorizationError={undefined} {...props} />)
+      expect(screen.getByText(copy)).toBeDefined()
+      const control2 = screen.getByRole('button', { name: en['oauth.authorize'] })
+      expect((control2 as HTMLButtonElement).disabled).toBe(false)
+      expect(screen.queryByRole('button', { name: en['oauth.cancel'] })).toBeNull()
+    }
+    rerender(<ServerRow row={{ ...row, status: OAUTH_ROW }} authorizationUrl={undefined} authorizationError="not a serving authority" {...props} />)
+    expect(screen.getByText(t('oauth.failed', { message: 'not a serving authority' }))).toBeDefined()
+
+    rerender(<ServerRow row={{ ...row, status: { ...OAUTH_ROW, authorization: { state: 'authorized', expiresAtMs: 5_000 }, attempt: { id: 'a1', phase: 'authorized', expiresAtMs: 9 } } }} authorizationUrl={undefined} authorizationError={undefined} {...props} />)
+    expect(screen.getByText(en['oauth.authorized'])).toBeDefined()
+    expect(screen.queryByText(en['oauth.attempt.failed'])).toBeNull()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['oauth.signOut'] })) })
+    expect(oauth.signOut).toHaveBeenCalledWith('web')
+    expect(screen.queryByRole('button', { name: en['oauth.authorize'] })).toBeNull()
+  })
+
+  it('keeps every OAuth control off while the page is read-only', () => {
+    render(<ServerRow row={{ id: 'web', serverName: 'web', transport: 'streamable-http', enabled: true, presets: [], registered: false, status: OAUTH_ROW }} writable={false} probe={undefined} t={t} authorizationUrl="https://as.example/authorize" authorizationError={undefined} actions={actions} />)
+    const control3 = screen.getByRole('button', { name: en['oauth.authorize'] })
+    expect((control3 as HTMLButtonElement).disabled).toBe(true)
+    const control4 = screen.getByRole('button', { name: en['oauth.signOut'] })
+    expect((control4 as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('link', { name: en['oauth.open'] })).toBeDefined()
+  })
+
   it('expands the tool inventory and forwards every action', async () => {
     render(<ServerRow row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false, status: STATUS }} writable probe={undefined} t={t} actions={actions} />)
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: t('row.tools', { count: '1' }) })) })
@@ -247,6 +342,31 @@ describe('editor draft codec', () => {
     expect(validateDraft({ ...base, transport: 'streamable-http', url: 'https://x' }, [], undefined)).toBeUndefined()
   })
 
+  it('round-trips the OAuth section and keeps it off stdio rows', () => {
+    const detailed = { id: 'web', serverName: 'web', transport: 'streamable-http' as const, url: 'https://mcp.example', oauth: { clientId: 'app', scope: 'mcp:tools', requestTimeoutMs: 2_500, authorizationTimeoutMs: 120_000 } }
+    const draft = draftOf(detailed, 'web')
+    expect(draft).toMatchObject({ oauth: true, oauthClientId: 'app', oauthScope: 'mcp:tools', oauthRequestTimeoutMs: '2500', oauthAuthorizationTimeoutMs: '120000' })
+    expect(rowOf(draft).oauth).toEqual(detailed.oauth)
+    for (const oauth of [true, {}] as const) {
+      expect(draftOf({ ...detailed, oauth }, 'web')).toMatchObject({ oauth: true, oauthClientId: '', oauthScope: '', oauthRequestTimeoutMs: '', oauthAuthorizationTimeoutMs: '' })
+    }
+    expect(rowOf({ ...draft, oauth: false }).oauth).toBeUndefined()
+    expect(rowOf({ ...draft, oauthClientId: '', oauthScope: '', oauthRequestTimeoutMs: '', oauthAuthorizationTimeoutMs: '' }).oauth).toBe(true)
+    expect(rowOf({ ...draft, oauthClientId: '', oauthScope: 'mcp:tools', oauthRequestTimeoutMs: '', oauthAuthorizationTimeoutMs: '' }).oauth).toEqual({ scope: 'mcp:tools' })
+    expect(rowOf({ ...draftOf(undefined, 'local'), oauth: true, command: 'x' })).not.toHaveProperty('oauth')
+  })
+
+  it('refuses OAuth beside an Authorization header and non-positive OAuth timeouts', () => {
+    const http = { ...draftOf(undefined, 'web'), transport: 'streamable-http' as const, url: 'https://mcp.example' }
+    expect(validateDraft({ ...http, oauth: true, headers: 'authorization=Bearer x' }, [], undefined)).toBe('editor.oauthAuthorizationHeader')
+    expect(validateDraft({ ...http, oauth: true, headers: 'X-Api-Key= k' }, [], undefined)).toBeUndefined()
+    expect(validateDraft({ ...http, oauth: true, oauthRequestTimeoutMs: '0' }, [], undefined)).toBe('editor.oauthTimeoutInvalid')
+    expect(validateDraft({ ...http, oauth: true, oauthAuthorizationTimeoutMs: '1.5' }, [], undefined)).toBe('editor.oauthTimeoutInvalid')
+    expect(validateDraft({ ...http, oauth: true, oauthRequestTimeoutMs: '2500' }, [], undefined)).toBeUndefined()
+    // The rule applies to a stdio row too, so a later transport switch never carries the conflict in.
+    expect(validateDraft({ ...draftOf(undefined, 'web'), oauth: true, command: 'x', headers: 'Authorization=Bearer x' }, [], undefined)).toBe('editor.oauthAuthorizationHeader')
+  })
+
   it('materializes an http draft with url and headers', () => {
     const draft = { ...draftOf(undefined, 'web'), transport: 'streamable-http' as const, url: ' https://web ', headers: 'X-Token=abc' }
     expect(rowOf(draft)).toMatchObject({ id: 'web', transport: 'streamable-http', url: 'https://web', headers: { 'X-Token': 'abc' } })
@@ -268,6 +388,48 @@ describe('ServerEditor modal', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['editor.save'] })) })
     expect(screen.getByText(en['editor.commandRequired'])).toBeDefined()
     expect(save).not.toHaveBeenCalled()
+  })
+
+  it('offers the OAuth fields to a remote server once OAuth is switched on', async () => {
+    const setDraft = vi.fn()
+    const draft = { ...draftOf(undefined, 'web'), transport: 'streamable-http' as const, url: 'https://mcp.example' }
+    const editor = (current: ServerDraft) => (
+      <ServerEditor
+        open
+        creating={false}
+        draft={current}
+        setDraft={setDraft}
+        others={[]}
+        t={t}
+        save={() => Promise.resolve()}
+        cancel={() => {}}
+      />
+    )
+    const { rerender } = render(editor(draft))
+    expect(screen.queryByLabelText(en['editor.oauth.clientId'])).toBeNull()
+    await act(async () => { fireEvent.click(screen.getByLabelText(en['editor.oauth'])) })
+    expect(setDraft).toHaveBeenLastCalledWith(expect.objectContaining({ oauth: true }))
+
+    rerender(editor({ ...draft, oauth: true }))
+    for (const label of [en['editor.oauth.clientId'], en['editor.oauth.scope'], en['editor.oauth.requestTimeout'], en['editor.oauth.authorizationTimeout']]) {
+      expect(screen.getByLabelText(label)).toBeDefined()
+    }
+    expect(screen.getByText(en['editor.oauthHint'])).toBeDefined()
+    const clientId = screen.getByLabelText(en['editor.oauth.clientId'])
+    await act(async () => { fireEvent.change(clientId, { target: { value: 'app' } }) })
+    expect(setDraft).toHaveBeenLastCalledWith(expect.objectContaining({ oauthClientId: 'app' }))
+    for (const [label, field, value] of [
+      [en['editor.oauth.scope'], 'oauthScope', 'mcp:tools'],
+      [en['editor.oauth.requestTimeout'], 'oauthRequestTimeoutMs', '5000'],
+      [en['editor.oauth.authorizationTimeout'], 'oauthAuthorizationTimeoutMs', '30000'],
+    ] as const) {
+      await act(async () => { fireEvent.change(screen.getByLabelText(label), { target: { value } }) })
+      expect(setDraft).toHaveBeenLastCalledWith(expect.objectContaining({ [field]: value }))
+    }
+
+    // Switching the transport away hides the section.
+    rerender(editor({ ...draft, oauth: true, transport: 'stdio' }))
+    expect(screen.queryByLabelText(en['editor.oauth.clientId'])).toBeNull()
   })
 
   it('switches transports to the remote fields and saves through the callback', async () => {
@@ -320,6 +482,32 @@ describe('ImportDialog modal', () => {
 })
 
 describe('McpSection page flows', () => {
+  it('threads the OAuth actions and the authorization page from the section into the card', async () => {
+    const status: McpManagementStatusRow = { ...OAUTH_ROW, attempt: { id: 'a1', phase: 'waiting-browser', expiresAtMs: 9 } }
+    const actions = renderSection({
+      ...readyState([{ id: 'web', serverName: 'web', transport: 'streamable-http', enabled: true, presets: [], registered: false, status }]),
+      authorizationUrls: { web: 'https://as.example/authorize?state=s' },
+    }, [{ id: 'web', serverName: 'web', enabled: true, transport: 'streamable-http', url: 'https://mcp.example' }])
+    const page6 = screen.getByRole('link', { name: en['oauth.open'] }) as HTMLAnchorElement
+    expect(page6.href).toBe('https://as.example/authorize?state=s')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['oauth.cancel'] })) })
+    expect(actions.cancelAuthorization).toHaveBeenCalledWith('web')
+    // A pending attempt owns the grant: sign-out waits until it settled.
+    const control5 = screen.getByRole('button', { name: en['oauth.signOut'] })
+    expect((control5 as HTMLButtonElement).disabled).toBe(true)
+    cleanup()
+    const settled = renderSection({
+      ...readyState([{ id: 'web', serverName: 'web', transport: 'streamable-http', enabled: true, presets: [], registered: false, status: OAUTH_ROW }]),
+      authorizationErrors: { web: 'not a serving authority' },
+    }, [])
+    expect(settled.authorize).not.toHaveBeenCalled()
+    expect(screen.getByText(t('oauth.failed', { message: 'not a serving authority' }))).toBeDefined()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['oauth.authorize'] })) })
+    expect(settled.authorize).toHaveBeenCalledWith('web')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['oauth.signOut'] })) })
+    expect(settled.signOut).toHaveBeenCalledWith('web')
+  })
+
   it('edits an existing row through the editor and writes the merged array', async () => {
     const actions = renderSection(readyState([{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }]))
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: en['row.edit'] })) })
@@ -416,7 +604,7 @@ describe('McpSection page flows', () => {
 
 describe('McpSection remaining arms', () => {
   it('treats a ready scope with no section value as an empty list', () => {
-    const store = createSnapshotStore<McpSectionState>({ status: 'ready', rows: [], writable: true, probes: {} })
+    const store = createSnapshotStore<McpSectionState>({ status: 'ready', rows: [], writable: true, probes: {}, authorizationUrls: {}, authorizationErrors: {} })
     const props = {
       refresh: () => Promise.resolve(),
       writeServers: () => Promise.resolve(),
@@ -587,6 +775,9 @@ describe('ServerRow checkbox', () => {
       requestDelete: vi.fn(),
       restart: vi.fn(() => Promise.resolve(undefined)),
       probe: vi.fn(() => Promise.resolve()),
+      authorize: vi.fn(() => Promise.resolve(undefined)),
+      cancelAuthorization: vi.fn(() => Promise.resolve()),
+      signOut: vi.fn(() => Promise.resolve()),
     }
     render(<ServerRow row={{ id: 'docs', serverName: 'docs', transport: 'stdio', enabled: true, presets: [], registered: false }} writable probe={undefined} t={t} actions={actions} />)
     await act(async () => { fireEvent.click(screen.getByRole('checkbox')) })

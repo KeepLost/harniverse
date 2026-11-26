@@ -7,9 +7,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { McpSectionController } from '../src/client/section-store.ts'
-import type { McpSettingsServers, McpStatusFace, PresetExposureFace } from '../src/client/section-store.ts'
+import type { McpSettingsServers, McpStatusFace, PresetExposureFace, RemoteCarrier } from '../src/client/section-store.ts'
 import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type { McpManagementStatusRow } from '@deepseek-ai/dsh-mcp-user-config/types'
+import type { McpAuthorizationStart } from '@deepseek-ai/dsh-mcp-user-config/types'
 
 type ScopeState = { snapshot: SettingsScopeSnapshot<McpSettingsServers>; written: Array<{ field: string; value: unknown }> }
 
@@ -39,12 +40,56 @@ function scopeDouble(state: ScopeState):
   }
 }
 
-/** A status face double with programmable answers and a restart log. */
-function statusDouble(rows: readonly McpManagementStatusRow[] | 'fail', restartResult: 'ok' | { message: string } = 'ok'): McpStatusFace & { restarts: string[]; probes: string[] } {
+/** An OAuth server whose attempt is waiting for the browser. */
+const OAUTH_WAITING: McpManagementStatusRow = {
+  id: 'web',
+  serverName: 'web',
+  transport: 'streamable-http',
+  state: 'waiting-authorization',
+  failedAttempts: 0,
+  maxAttempts: 8,
+  tools: [],
+  authorization: { state: 'waiting-authorization', reason: 'missing' },
+  attempt: { id: 'a1', phase: 'waiting-browser', expiresAtMs: 9 },
+}
+
+const OAUTH_STARTED: McpAuthorizationStart = { attempt: OAUTH_WAITING.attempt!, authorizationUrl: 'https://as.example/authorize?state=s' }
+
+/** An identity double for the preset-exposure face. */
+function emptyExposure(): PresetExposureFace {
+  return { presetIds: () => Promise.resolve([]), selectedServerNames: () => Promise.resolve([]) }
+}
+
+/** A status face double with programmable answers and call logs. */
+function statusDouble(rows: readonly McpManagementStatusRow[] | 'fail', restartResult: 'ok' | { message: string } = 'ok'): McpStatusFace & {
+  restarts: string[]
+  probes: string[]
+  starts: Array<[serverId: string, redirectOrigin: string | undefined]>
+  cancels: string[]
+  signOuts: string[]
+  started: ReturnType<typeof vi.fn>
+} {
   const restarts: string[] = []
   const probes: string[] = []
+  const starts: Array<[serverId: string, redirectOrigin: string | undefined]> = []
+  const cancels: string[] = []
+  const signOuts: string[] = []
+  const started = vi.fn((_serverId: string, _redirectOrigin: string | undefined): RemoteCarrier<McpAuthorizationStart> =>
+    Promise.resolve({ ok: true, value: OAUTH_STARTED }))
   return {
     status: () => rows === 'fail' ? Promise.resolve({ ok: false, error: { message: 'down' } }) : Promise.resolve({ ok: true, value: rows }),
+    startAuthorization: (serverId, redirectOrigin) => {
+      starts.push([serverId, redirectOrigin])
+      return started(serverId, redirectOrigin)
+    },
+    cancelAuthorization: (serverId) => {
+      cancels.push(serverId)
+      return Promise.resolve({ ok: true, value: undefined })
+    },
+    signOut: (serverId) => {
+      signOuts.push(serverId)
+      return Promise.resolve({ ok: true, value: undefined })
+    },
     restart: (serverId) => {
       restarts.push(serverId)
       return restartResult === 'ok' ? Promise.resolve({ ok: true as const, value: undefined }) : Promise.resolve({ ok: false as const, error: restartResult })
@@ -55,12 +100,11 @@ function statusDouble(rows: readonly McpManagementStatusRow[] | 'fail', restartR
     },
     restarts,
     probes,
+    starts,
+    cancels,
+    signOuts,
+    started,
   }
-}
-
-/** An exposure double answering no presets at all. */
-function emptyExposure(): PresetExposureFace {
-  return { presetIds: () => Promise.resolve([]), selectedServerNames: () => Promise.resolve([]) }
 }
 
 const STATUS_ROW: McpManagementStatusRow = {
@@ -143,7 +187,14 @@ describe('McpSectionController', () => {
     const scope = scopeDouble({ snapshot: { ...READY_SNAPSHOT, value: undefined }, written: [] })
     const controller = new McpSectionController(
       scope,
-      { status: () => Promise.reject(new Error('socket gone')), restart: () => Promise.resolve({ ok: true as const, value: undefined }), probe: () => Promise.resolve({ ok: true as const, value: { ok: false, stage: 'connect', message: 'x', durationMs: 0, cleanup: 'ok' } }) },
+      {
+        status: () => Promise.reject(new Error('socket gone')),
+        restart: () => Promise.resolve({ ok: true as const, value: undefined }),
+        probe: () => Promise.resolve({ ok: true as const, value: { ok: false, stage: 'connect', message: 'x', durationMs: 0, cleanup: 'ok' } }),
+        startAuthorization: () => Promise.reject(new Error('socket gone')),
+        cancelAuthorization: () => Promise.resolve({ ok: true as const, value: undefined }),
+        signOut: () => Promise.resolve({ ok: true as const, value: undefined }),
+      },
       emptyExposure(),
     )
     await controller.refresh()
@@ -299,5 +350,70 @@ describe('McpSectionController', () => {
 
     controller.stop()
     vi.useRealTimers()
+  })
+
+  describe('OAuth authorization', () => {
+    const OAUTH_SCOPE: SettingsScopeSnapshot<McpSettingsServers> = {
+      ...READY_SNAPSHOT,
+      value: { servers: [{ id: 'web', serverName: 'web', enabled: true, transport: 'streamable-http', url: 'https://mcp.example', oauth: true }] },
+    }
+    const oauthController = (face: ReturnType<typeof statusDouble>) =>
+      new McpSectionController(scopeDouble({ snapshot: OAUTH_SCOPE, written: [] }), face, emptyExposure())
+
+    it('publishes the authorization page while its attempt waits for the browser and forgets it afterwards', async () => {
+      const face = statusDouble([OAUTH_WAITING])
+      const controller = oauthController(face)
+      await controller.refresh()
+      expect(controller.store.getSnapshot().authorizationUrls).toEqual({})
+      expect(controller.store.getSnapshot().rows?.[0]?.status?.authorization).toEqual({ state: 'waiting-authorization', reason: 'missing' })
+
+      await expect(controller.authorize('web', 'http://127.0.0.1:3080')).resolves.toBe(OAUTH_STARTED.authorizationUrl)
+      expect(face.starts).toEqual([['web', 'http://127.0.0.1:3080']])
+      expect(controller.store.getSnapshot().authorizationUrls).toEqual({ web: OAUTH_STARTED.authorizationUrl })
+
+      face.status = () => Promise.resolve({ ok: true, value: [{ ...OAUTH_WAITING, attempt: { id: 'a1', phase: 'exchanging', expiresAtMs: 9 } }] })
+      await controller.refresh()
+      expect(controller.store.getSnapshot().authorizationUrls).toEqual({})
+    })
+
+    it('keeps a refused start as the row failure and clears it on the next accepted start', async () => {
+      const face = statusDouble([OAUTH_WAITING])
+      const controller = oauthController(face)
+      await controller.refresh()
+      face.started.mockResolvedValueOnce({ ok: false, error: { message: 'not a serving authority' } })
+      await expect(controller.authorize('web', 'https://evil.example')).resolves.toBeUndefined()
+      expect(controller.store.getSnapshot().authorizationErrors).toEqual({ web: 'not a serving authority' })
+
+      await expect(controller.authorize('web', undefined)).resolves.toBe(OAUTH_STARTED.authorizationUrl)
+      expect(controller.store.getSnapshot().authorizationErrors).toEqual({})
+      expect(face.starts[1]).toEqual(['web', undefined])
+    })
+
+    it('carries a transported failure of the start request and forwards cancel and sign out', async () => {
+      const face = statusDouble([OAUTH_WAITING])
+      face.started.mockRejectedValueOnce(new Error('socket gone'))
+      const controller = oauthController(face)
+      await controller.refresh()
+      await expect(controller.authorize('web', undefined)).resolves.toBeUndefined()
+      expect(controller.store.getSnapshot().authorizationErrors).toEqual({ web: 'socket gone' })
+
+      await controller.cancelAuthorization('web')
+      await controller.signOut('web')
+      expect(face.cancels).toEqual(['web'])
+      expect(face.signOuts).toEqual(['web'])
+    })
+
+    it('surfaces a refused cancel and a non-Error sign-out rejection on the row', async () => {
+      const face = statusDouble([OAUTH_WAITING])
+      const controller = oauthController(face)
+      await controller.refresh()
+      face.cancelAuthorization = () => Promise.resolve({ ok: false, error: { message: 'administer denied' } })
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the catch arm must render non-Error rejections
+      face.signOut = () => Promise.reject('plain string')
+      await controller.cancelAuthorization('web')
+      expect(controller.store.getSnapshot().authorizationErrors).toEqual({ web: 'administer denied' })
+      await controller.signOut('web')
+      expect(controller.store.getSnapshot().authorizationErrors).toEqual({ web: 'plain string' })
+    })
   })
 })

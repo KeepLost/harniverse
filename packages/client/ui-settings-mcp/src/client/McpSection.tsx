@@ -1,9 +1,9 @@
 /**
  * The MCP management settings section: a fixed header (intro plus add /
  * import / refresh actions) over the scrolling server-card list. Server
- * writes ride the `mcp` settings scope; connection status and restart ride
- * the mcpManagement Remote; preset references come from the capability
- * composition of each preset.
+ * writes ride the `mcp` settings scope; connection status, restart, probe,
+ * and the OAuth authorization ride the mcpManagement Remote; preset
+ * references come from the capability composition of each preset.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -38,6 +38,12 @@ export interface McpSectionInjected {
   restart: (id: string) => Promise<string | undefined>
   /** Probe one server's configuration without mounting an owner. */
   probe: (id: string) => Promise<void>
+  /** Begin or join the OAuth authorization of one server; resolves to the authorization page, or undefined when the Host refused. */
+  authorize: (id: string) => Promise<string | undefined>
+  /** Cancel the pending OAuth authorization of one server. */
+  cancelAuthorization: (id: string) => Promise<void>
+  /** Delete the stored OAuth grant of one server. */
+  signOut: (id: string) => Promise<void>
 }
 
 /** The settings-scope face the section reads rows from. */
@@ -54,7 +60,7 @@ export type McpSectionProps =
 
 /** The settings page. */
 export function McpSection(props: McpSectionProps) {
-  const { t, scope, refresh, writeServers, restart, probe } = props
+  const { t, scope, refresh, writeServers, restart, probe, authorize, cancelAuthorization, signOut } = props
   const state = props.useMcpSection(snapshot => snapshot)
   const settings = scope.getSnapshot()
   const rows = state.rows ?? []
@@ -143,6 +149,8 @@ export function McpSection(props: McpSectionProps) {
             row={row}
             writable={writable}
             probe={state.probes[row.id]}
+            authorizationUrl={state.authorizationUrls[row.id]}
+            authorizationError={state.authorizationErrors[row.id]}
             t={t}
             actions={{
               setEnabled,
@@ -156,6 +164,9 @@ export function McpSection(props: McpSectionProps) {
               requestDelete: (id) => { setDeleteId(id) },
               restart,
               probe,
+              authorize,
+              cancelAuthorization,
+              signOut,
             }}
           />
         ))}

@@ -55,6 +55,9 @@ async function bench(options: { roster?: 'ok' | 'fail' | 'absent'; catalog?: 'ok
     status: vi.fn(() => options.status === 'throw' ? Promise.reject(new Error('remote gone')) : Promise.resolve({ ok: true as const, value: STATUS_ROWS })),
     restart: vi.fn(() => Promise.resolve({ ok: true as const, value: undefined })),
     probe: vi.fn(() => Promise.resolve({ ok: true as const, value: { ok: true, toolNames: ['search'], truncated: false, durationMs: 3, cleanup: 'ok' as const } })),
+    startAuthorization: vi.fn(() => Promise.resolve({ ok: true as const, value: { attempt: { id: 'a1', phase: 'waiting-browser' as const, expiresAtMs: 9 }, authorizationUrl: 'https://as.example/authorize?state=s' } })),
+    cancelAuthorization: vi.fn(() => Promise.resolve({ ok: true as const, value: undefined })),
+    signOut: vi.fn(() => Promise.resolve({ ok: true as const, value: undefined })),
   }
   ctx.provide('remote.mcpManagement', mcpManagement)
   ctx.provide('remote.capabilityManagement', {
@@ -148,6 +151,40 @@ describe('ui-settings-mcp apply', () => {
     await expect(face.restart('docs')).resolves.toBeUndefined()
     await face.probe('docs')
     expect((scope.set as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('servers', [{ id: 'docs' }])
+  })
+
+  it('authorizes with the page origin and forwards cancel and sign out to the Remote', async () => {
+    const { ctx, slots, mcpManagement } = await bench()
+    declareRoot(slots)
+    await ctx.plugin({ apply, inject }).await()
+    const section = slots.entries('settings.section').find(entry => entry.options.id === 'mcp')
+    const face = section?.inject?.() as {
+      authorize: (id: string) => Promise<string | undefined>
+      cancelAuthorization: (id: string) => Promise<void>
+      signOut: (id: string) => Promise<void>
+    }
+    // An opaque page origin (about:blank) sends none, so the Host uses its own default.
+    await expect(face.authorize('docs')).resolves.toBe('https://as.example/authorize?state=s')
+    expect(mcpManagement.startAuthorization).toHaveBeenCalledWith('docs')
+    await face.cancelAuthorization('docs')
+    await face.signOut('docs')
+    expect(mcpManagement.cancelAuthorization).toHaveBeenCalledWith('docs')
+    expect(mcpManagement.signOut).toHaveBeenCalledWith('docs')
+  })
+
+  it('forwards a real page origin for the Host to validate', async () => {
+    const { ctx, slots, mcpManagement } = await bench()
+    declareRoot(slots)
+    await ctx.plugin({ apply, inject }).await()
+    const section = slots.entries('settings.section').find(entry => entry.options.id === 'mcp')
+    const face = section?.inject?.() as { authorize: (id: string) => Promise<string | undefined> }
+    vi.stubGlobal('location', { origin: 'http://127.0.0.1:3080' })
+    try {
+      await expect(face.authorize('docs')).resolves.toBe('https://as.example/authorize?state=s')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+    expect(mcpManagement.startAuthorization).toHaveBeenCalledWith('docs', 'http://127.0.0.1:3080')
   })
 
   it('re-joins immediately when the Host reports a fleet change', async () => {

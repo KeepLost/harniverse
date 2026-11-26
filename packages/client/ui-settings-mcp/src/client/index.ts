@@ -2,10 +2,11 @@
  * MCP management settings section, browser half. One `settings.section`
  * entry (id `mcp`) whose page lists this machine's user-configured MCP
  * servers: the `mcp` settings scope carries the durable rows and every
- * write, the mcpManagement Remote carries live connection state and the
- * restart operation, and per-preset capability composition supplies the
- * read-only "exposed by" references. Configuration, connections, and
- * restart all live on the machine the page is connected to.
+ * write, the mcpManagement Remote carries live connection state, the
+ * restart and probe operations, and the OAuth authorization, and per-preset
+ * capability composition supplies the read-only "exposed by" references.
+ * Configuration, connections, restart, and authorization all live on the
+ * machine the page is connected to.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the generated Remote API and ctx.remote merge through the Client assembly boundary.
@@ -33,6 +34,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Settings namespace of the `mcp` section the page binds. */
 const MCP_SETTINGS_NS = 'mcp'
+
+/** The origin this page is served from, which the Host validates as an OAuth redirect origin; an opaque origin counts as none. */
+function pageOrigin(): string | undefined {
+  return typeof location === 'undefined' || location.origin === 'null' ? undefined : location.origin
+}
 
 /** Required services: slots, locale, the Remote transport and its two services, and the settings scope. */
 export const inject = ['slots', 'locale', 'remote', 'remote.mcpManagement', 'remote.capabilityManagement', 'settingsScope']
@@ -87,6 +93,13 @@ export function apply(ctx: ClientContext): void {
     status: () => ctx.remote.mcpManagement.status(),
     restart: serverId => ctx.remote.mcpManagement.restart(serverId),
     probe: serverId => ctx.remote.mcpManagement.probe(serverId),
+    // The Host judges this page's origin before it advertises it to an
+    // authorization server; a non-browser host sends none and gets the default.
+    startAuthorization: (serverId, redirectOrigin) => redirectOrigin === undefined
+      ? ctx.remote.mcpManagement.startAuthorization(serverId)
+      : ctx.remote.mcpManagement.startAuthorization(serverId, redirectOrigin),
+    cancelAuthorization: serverId => ctx.remote.mcpManagement.cancelAuthorization(serverId),
+    signOut: serverId => ctx.remote.mcpManagement.signOut(serverId),
   }, { presetIds, selectedServerNames })
 
   // The Host reports every fleet change through the forwarded registry
@@ -112,6 +125,9 @@ export function apply(ctx: ClientContext): void {
       writeServers: (servers: ReadonlyArray<NonNullable<McpSettingsServers['servers']>[number]>) => controller.writeServers(servers),
       restart: (id: string) => controller.restart(id),
       probe: (id: string) => controller.probe(id),
+      authorize: (id: string) => controller.authorize(id, pageOrigin()),
+      cancelAuthorization: (id: string) => controller.cancelAuthorization(id),
+      signOut: (id: string) => controller.signOut(id),
     }),
   }, McpSection))
   ctx.slots.inject('settings.nav.icon', () => ctx.slots.register({

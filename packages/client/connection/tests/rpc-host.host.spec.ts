@@ -948,3 +948,31 @@ describe('log placeholders on a bodiless socket', () => {
     await harness.dispose()
   })
 })
+
+describe('isTrustedWebOrigin', () => {
+  it('admits the loopback authorities the listener itself serves', async () => {
+    const harness = await mounted()
+    for (const origin of ['http://127.0.0.1:3080', 'http://localhost', 'http://127.5.6.7:3080', 'https://[::1]:8443']) {
+      expect(harness.service.isTrustedWebOrigin(origin), origin).toBe(true)
+    }
+    await harness.dispose()
+  })
+
+  it('admits a declared authority and refuses every other, non-canonical, or non-http spelling', async () => {
+    const harness = await mounted({ trustedHosts: ['harness.example:8443', '192.168.1.5'] })
+    expect(harness.service.isTrustedWebOrigin('https://harness.example:8443')).toBe(true)
+    expect(harness.service.isTrustedWebOrigin('http://192.168.1.5:3080')).toBe(true)
+    for (const origin of [
+      'https://evil.example',
+      'https://harness.example',
+      'https://harness.example:8443/app',
+      'harness.example',
+      'not a url',
+      'ftp://harness.example:8443',
+      'https://user@harness.example:8443',
+    ]) {
+      expect(harness.service.isTrustedWebOrigin(origin), origin).toBe(false)
+    }
+    await harness.dispose()
+  })
+})

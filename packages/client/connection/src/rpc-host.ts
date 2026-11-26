@@ -133,6 +133,26 @@ export class HostConnectionService extends Service implements HostConnectionHand
   }
 
   /**
+   * Whether one absolute web origin is a serving authority of this
+   * deployment: the Host fence (`loopback` or a `trustedHosts` entry) of the
+   * `/api` trust fence, applied to the origin's authority, with the Origin
+   * bound to that same authority. A redirect origin a browser supplies is
+   * judged by this before it is advertised to another server.
+   * @param origin - Exact `http(s)://host[:port]` origin, without a path.
+   * @returns True only for a canonical HTTP(S) origin whose authority this deployment serves.
+   */
+  isTrustedWebOrigin(origin: string): boolean {
+    let url: URL
+    try {
+      url = new URL(origin)
+    } catch {
+      return false
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.origin !== origin) return false
+    return isTrustedApiRequest({ headers: { host: url.host, origin: url.origin } }, this.trustedHosts, this.trustedOrigins)
+  }
+
+  /**
    * Compose one shared-channel Fetch handler from its interceptor and fallback.
    * @param channel - shared channel mounted by Connection.
    * @param fallback - handler for endpoints not claimed by the interceptor.
