@@ -53,7 +53,7 @@ Status: implemented
 - `SessionSummary.completed` 与 `SessionListEntry.completed` 退出运行时的公开契约；渲染旧提醒的消费方改为读取 `useSessionReading`。
 - 治理配额页签曾通过可选的 `completed` 映射旧提醒，现已失去其 `done` 圆点；其行只显示交互与运行中两种状态。
 - 阅读插件是 `packages/client/` 下第二个拆分的宿主／客户端项目，`sessionReading/changed` 加入转发事件名单。
-- 在已挂载的会话列表之下加载或卸载阅读插件，会重新挂载列表主体；进行中的搜索查询等本地状态随之重置。
+- 在已挂载的会话列表之下加载或卸载阅读插件，只会重新挂载一个无状态的桥接组件；列表主体及其本地状态（包括进行中的搜索查询）保持挂载。
 
 ## 测试
 

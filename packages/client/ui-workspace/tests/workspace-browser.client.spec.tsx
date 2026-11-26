@@ -1573,6 +1573,13 @@ describe('WorkspaceBrowser reading seam', () => {
       expect(screen.getByText('kept')).toBeTruthy()
       rerender(b, { useSessionReading: hook(state({ [sid('kept')]: { failed: true } })) })
       expect(screen.getByText('运行失败')).toBeTruthy()
+      // Only the stateless bridge remounts: a query typed before the seam moved stays in the search box.
+      fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: 'kept' } })
+      delete b.props.useSessionReading
+      rerender(b, {})
+      rerender(b, { useSessionReading: hook(state({ [sid('kept')]: { failed: true } })) })
+      expect(screen.getByPlaceholderText('搜索会话…')).toHaveProperty('value', 'kept')
+      expect(screen.getByText('kept')).toBeTruthy()
       expect(error).not.toHaveBeenCalled()
     } finally {
       error.mockRestore()

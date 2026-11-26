@@ -775,21 +775,31 @@ function SearchResults({
   )
 }
 
+/** The optional reading root hook and the ledger snapshot it publishes. */
+type ReadingHook = NonNullable<WorkspaceBrowserProps['useSessionReading']>
+type ReadingState = Parameters<Parameters<ReadingHook>[0]>[0]
+
 /**
- * Render the browsing region. The body is keyed on the presence of the
- * optional `useSessionReading` root hook: a session-reading plugin that loads
- * or unloads under a mounted browser remounts the body instead of changing
- * the body's Hook order.
+ * Render the browsing region.
  * @param props - composed slot props (shell owner share + store + injected actions).
  * @returns the region element tree.
  */
 export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
-  return (
-    <WorkspaceBrowserBody
-      key={props.useSessionReading === undefined ? 'session-reading-absent' : 'session-reading-present'}
-      {...props}
-    />
-  )
+  return <WorkspaceBrowserBody {...props} />
+}
+
+/**
+ * Read the optional `useSessionReading` root hook and report its snapshot
+ * upward. The bridge is keyed on the hook's presence, so a session-reading
+ * plugin that loads or unloads under a mounted browser remounts this stateless
+ * bridge only; the browser body and its local state stay mounted.
+ * @param props - the hook (absent while no session-reading plugin is composed) and the snapshot sink.
+ * @returns nothing.
+ */
+function ReadingBridge({ hook, report }: { hook: ReadingHook | undefined; report: (state: ReadingState | undefined) => void }) {
+  const state = hook?.(snapshot => snapshot)
+  useEffect(() => { report(state) }, [report, state])
+  return null
 }
 
 function WorkspaceBrowserBody({
@@ -830,7 +840,7 @@ function WorkspaceBrowserBody({
   // The optional reading seam: the unread ledger for every row list, the row
   // menu's manual mark, and the selected row's visibility report. All three
   // stay absent while the session-reading plugin is not composed.
-  const reading = useSessionReading?.(state => state)
+  const [reading, setReading] = useState<ReadingState | undefined>(undefined)
   const readingFace = useMemo<SessionReadingFace | undefined>(() => reading === undefined
     ? undefined
     : {
@@ -1109,6 +1119,11 @@ function WorkspaceBrowserBody({
 
   return (
     <div className={clsx(css.root, !wide && css.rail)}>
+      <ReadingBridge
+        key={useSessionReading === undefined ? 'session-reading-absent' : 'session-reading-present'}
+        hook={useSessionReading}
+        report={setReading}
+      />
       {renderSlot('sidebar.workspaces.machine', { wide })}
       <div className={css.sectionHeader}>
         {wide && !archiveMode && !batchArchiveMode && (

@@ -53,7 +53,7 @@ The ledger lives in Host memory only. A Host restart drops every record, so no s
 - `SessionSummary.completed` and `SessionListEntry.completed` leave the runtime's public contract; a consumer that rendered the old reminder reads `useSessionReading` instead.
 - The governor quota tab mirrored the old reminder through an optional `completed` and lost its `done` dot; its rows show interaction and running only.
 - The reading plugin is a second split Host/Client project under `packages/client/`, and `sessionReading/changed` joins the forwarded-event allowlist.
-- A session-reading plugin that loads or unloads under a mounted session list remounts the list body; local state such as an in-progress search query resets with it.
+- A session-reading plugin that loads or unloads under a mounted session list remounts one stateless bridge only; the list body and its local state, an in-progress search query among them, stay mounted.
 
 ## Testing
 
