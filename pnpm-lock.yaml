@@ -2933,6 +2933,10 @@ importers:
         version: link:../../runtime-diagnostics/invariants
 
   packages/client/session-reading:
+    dependencies:
+      zod:
+        specifier: ^4.6.6
+        version: 4.6.7
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
