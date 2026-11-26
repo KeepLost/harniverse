@@ -154,6 +154,11 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/client/session-reading": {
+      "ignoreDependencies": [
+        "zod"
+      ]
+    },
     "packages/api/remotes": {
       "entry": [
         "tests/**/*.e2e.ts"
