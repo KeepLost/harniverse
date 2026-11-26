@@ -45,6 +45,19 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 - `probeServer(config, options)` 是一次性配置测试：连接、读取服务器身份、在显式上限下（`timeoutMs` 整体预算、`maxPages`、`maxToolNames`、`signal`）分页列出工具名、在有界宽限内关闭。它不注册任何东西、不占用命名空间；失败以阶段分类的 `McpProbeResult`（`./types`）返回，并附独立结算的关闭结果，而不是抛出异常。`mcpManagement.probe` 以它服务设置页。
 - `exposeScopedServer` 是两种模式共享的唯一暴露路径：服务器提示上下文、能力适配器与资源发布都派生自相同的描述符，因此注册器的模型可见表面与同一服务器的独立实例逐字节一致。
 
+## OAuth
+
+配置了 `oauth` 的 Streamable HTTP 条目通过 OAuth 2.1 认证，而非静态标头；其连接是被动的：绝不打开浏览器、注册客户端或重定向。它经由凭据 seam（`ctx.credentials`，以结构化方式读取）按引用 `mcp_oauth_<服务器键的十六进制>` 为每台服务器读取一条授权记录——共享 owner 使用其设置 id，独立行使用其 `serverName`。该记录是一份自包含、带版本的 JSON 文档，把 endpoint URL、授权服务器、客户端信息与 token 彼此绑定；任何 token 都绝不会出示给其他 endpoint 或其他授权服务器。
+
+- 没有可用授权时，连接停在 `waiting-authorization` 而不重试。原因包括 `missing`、`expired`、`binding`（授权是为其他 endpoint、客户端 id 或 scope 签发的）、`rejected` 或 `scope`；工具与资源调用以 `McpLocalError` 失败，其 code 为 `MCP_AUTHORIZATION_REQUIRED`，消息为 `MCP OAuth requires authorization: <reason>`，而最后成功的工具清单保持列出。
+- 访问 token 超过刷新期限后，会在下一次请求前刷新。刷新在整个进程内按授权引用单飞且串行，退出登录或新提交的授权会排在同一记录的刷新之后；确定性拒绝使连接进入 `waiting-authorization`，瞬时失败则仍走普通重连循环。
+- 被 401 拒绝的请求会在一次强制刷新后重试一次：再次 401 记为 `rejected`，403 `insufficient_scope` 记为 `scope`。只有发往 endpoint 自身 origin 的请求携带 bearer 与配置的标头；OAuth 协议请求两者都不携带。
+- 每个 OAuth 请求与重定向 URI 都必须是 HTTPS，或者是回环主机上的 HTTP；endpoint 为其他主机明文 HTTP 的 `oauth` 条目在配置解析时即被拒绝。
+- 调用方提供凭据 seam 时，`probeServer(config, { oauth })` 附带已存储的授权，否则把缺失授权报告为连接失败；探测绝不发起授权。
+- 显式授权提交后，连接的 `oauth.resume()` 让 supervisor 重新判定授权并再次连接；退出登录清除授权，并经等待钩子使已连接的一代下线。
+
+显式授权本身——发现、动态客户端注册或配置的 `clientId`、PKCE 授权请求以及授权码交换——由 [`dsh-mcp-user-config`](../mcp-user-config/README.md) 拥有，并经由共享连接的 `oauth` 能力到达本包。
+
 ## 配置
 
 | 字段 | 传输 | 必填 | 描述 |
@@ -57,7 +70,8 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 | `env` | stdio | 否 | 合并到已清理环境中的额外环境变量 |
 | `cwd` | stdio | 否 | 子进程工作目录 |
 | `url` | http | 是 | MCP 服务器 URL |
-| `headers` | http | 否 | 额外标头（例如认证 token） |
+| `headers` | http | 否 | 额外标头（例如认证 token）；不能与 `oauth` 同时配置 `Authorization` 标头 |
+| `oauth` | http | 否 | OAuth 2.1 授权：`true` 选用全部默认值；对象可设置 `clientId`、`scope`、`requestTimeoutMs`（默认 10000）与 `authorizationTimeoutMs`（默认 600000） |
 | `toolCallTimeoutMs` | 两者 | 否 | 每次 `callTool` 调用的超时（默认 60000） |
 | `maxInstructionBytes` | 两者 | 否 | 服务器 instructions 的字节预算，含归属 header（默认 32768） |
 | `failOnStartupError` | 两者 | 否 | 初始连接或工具同步失败时拒绝插件激活（默认 `false`） |
@@ -98,6 +112,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 | `ctx.capabilities` | 可选地发布 server identity 并应用 Profile generation 选择 |
 | `ctx.mcpResources` | 可选地发布该服务器的资源提供者（经 `dsh-mcp-resources`） |
 | `ctx.systemPrompt` | 可选地注册归属后的服务器 instructions 小节 |
+| `ctx.credentials` | 可选地存储并读取 OAuth 授权记录（以结构化方式读取；无包依赖） |
 
 ## 模型体验
 
@@ -119,7 +134,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 #### 模型看到的内容
 
-公开工具名称和 JSON 参数会保留在 assistant 历史中。文本结果块会以换行连接为一个保留的 Native 文本结果；图片、音频、资源和不受支持的块在其中变为简短占位符。它们的完整 JSON 块及可选结构化内容保留在执行局部的规范值中；MCP `isError` 会通过注册表的错误路径拒绝调用。
+公开工具名称和 JSON 参数会保留在 assistant 历史中。文本结果块会以换行连接为一个保留的 Native 文本结果；图片、音频、资源和不受支持的块在其中变为简短占位符。它们的完整 JSON 块及可选结构化内容保留在执行局部的规范值中；MCP `isError` 会通过注册表的错误路径拒绝调用。配置了 OAuth 的服务器等待授权期间，其调用以 `MCP OAuth requires authorization: <reason>` 失败。
 
 #### Token 影响
 
@@ -152,3 +167,6 @@ instructions 块受 `maxInstructionBytes`（默认 32 KiB）约束；重连退�
 - **重连在传输关闭时触发**：崩溃的 stdio 子进程会触发重连；Streamable HTTP 失败通过每次请求以及 SDK 传输自身的 SSE（Server-Sent Events）流恢复机制暴露，因此不可达的 HTTP 服务器会按调用重试，而非由 supervisor 重新 spawn。
 - **Native 非文本渲染有损**：图片、音频与资源载荷在模型上下文中会变成占位符，即使执行局部的规范值保留了其 JSON 块。更丰富的 Native 多媒体投影暂缓实现。
 - **不强制执行不受支持的 MCP 输出 schema**：已声明 schema 使用 harness 子集之外的词汇时，`structuredContent` 会回退到 `JsonValue`。
+- **独立行没有进程内授权路径**：`cordis.yml` 中带 `oauth` 的行只使用已存储在其 `serverName` 下的授权；设置页仅授权机群条目。
+- **授权绑定其 endpoint 与 OAuth 选项**：更改 `url`、`clientId` 或 `scope` 会使连接进入 `waiting-authorization`，原因为 `binding`，直到用户重新授权；退出登录会清除过期授权。
+- **连接等待期间不会观察到授权记录的外部编辑**：不消费凭据变更事件，连接在下一次挂载或 `resume()` 时重新判定授权。

@@ -24,6 +24,11 @@ import { clientIdentity } from '@deepseek-ai/dsh-identity'
 import type { JsonValue } from '@deepseek-ai/dsh-tools'
 import { boundedResourceResult, MAX_RESOURCE_RESULT_BYTES } from '@deepseek-ai/dsh-mcp-resources'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { oauthConfigOf } from './oauth-options.ts'
+import { McpAuthorizationRequired } from './oauth-errors.ts'
+import { createOAuthSession, credentialsStoreOf } from './oauth-session.ts'
+import type { McpConnectionOAuth, McpOAuthAuthorizationState, McpOAuthSession } from './oauth-session.ts'
+import { mcpOAuthServerKey } from './oauth-store.ts'
 import { createTransport } from './transport.ts'
 import { cursorGuard, listToolDescriptors, publicToolName, RawCallToolResultSchema, syncTools } from './tools.ts'
 import type { McpToolDescriptor, ToolBridgeOptions, ToolDisposers } from './tools.ts'
@@ -123,6 +128,8 @@ export interface ConnectionHandle extends ServerContext {
   resourceUris(): string[]
   /** Sorted URI templates from the same last successful inventory. */
   resourceTemplates(): string[]
+  /** OAuth capability of an OAuth-configured server; absent for every other server. */
+  readonly oauth?: McpConnectionOAuth
   /**
    * Stop reconnection, close the live client, wait for the in-flight attempt
    * and queued tool syncs to quiesce, then unregister every tool this server
@@ -131,11 +138,17 @@ export interface ConnectionHandle extends ServerContext {
   dispose(): Promise<void>
 }
 
-/** Connection lifecycle state reported by a shared connection. */
+/**
+ * Connection lifecycle state reported by a shared connection.
+ * `waiting-authorization` is the OAuth rest state: the server is OAuth
+ * configured and its grant is missing, expired, bound elsewhere, or refused,
+ * so no attempt is made until the user authorizes the server.
+ */
 export type McpConnectionState =
   | 'connecting'
   | 'connected'
   | 'reconnecting'
+  | 'waiting-authorization'
   | 'exhausted'
   | 'stopped'
   | 'disposed'
@@ -144,6 +157,8 @@ export type McpConnectionState =
 export interface McpConnectionStatus {
   /** Derived lifecycle state of the supervised connection. */
   state: McpConnectionState
+  /** Authorization state of an OAuth-configured server; absent otherwise. */
+  authorization?: McpOAuthAuthorizationState
   /** Epoch ms of the current generation's initial sync; absent while down. */
   connectedAtMs?: number
   /** Consecutive failed attempts within the current outage. */
@@ -184,6 +199,8 @@ export interface SharedConnection extends ServerContext {
   callTool(rawName: string, args: Record<string, unknown>, exec: { signal?: AbortSignal }): Promise<unknown>
   /** Observe inventory/connection changes; the disposer removes the listener. */
   subscribe(listener: () => void): () => void
+  /** OAuth capability of an OAuth-configured server; absent for every other server. */
+  readonly oauth?: McpConnectionOAuth
   /**
    * Stop reconnection, close the live client, and quiesce; the inventory
    * empties and every subscriber hears the final change.
@@ -258,6 +275,38 @@ function supervise(
   /** The error of the most recent failed attempt, for status surfaces. */
   let lastError: unknown
 
+  // An OAuth-configured server authenticates through its session. The
+  // supervisor owns no protocol step; it reacts to the session's two events
+  // and keeps the last good inventory while the session waits.
+  const oauthEnabled = oauthConfigOf(config, label)
+  const oauth: McpOAuthSession | undefined = oauthEnabled === undefined ? undefined : createOAuthSession({
+    config: oauthEnabled.config,
+    options: oauthEnabled.options,
+    serverKey: mcpOAuthServerKey(config),
+    store: credentialsStoreOf(ctx),
+    hooks: {
+      onWaiting: () => {
+        notify()
+        const established = client
+        // A generation that observed its own rejection finishes the refused
+        // request first; it is closed on a later tick, never from inside it.
+        if (connectedAt !== undefined && established !== undefined) {
+          const timeout = setTimeout(() => { void established.close() }, 0)
+          timeout.unref()
+        }
+      },
+      onResume: () => {
+        if (!disposed && client === undefined && reconnectTimer === undefined) settling = connectGeneration(false)
+      },
+    },
+  })
+
+  /** The coded refusal an operation receives while the session waits for authorization. */
+  const authorizationError = (): McpAuthorizationRequired | undefined => {
+    const reason = oauth?.waitingReason()
+    return reason === undefined ? undefined : new McpAuthorizationRequired(reason)
+  }
+
   const notify = (): void => {
     onToolsChanged()
     for (const subscriber of subscribers) {
@@ -273,6 +322,7 @@ function supervise(
   const state = (): McpConnectionState => {
     if (disposed) return 'disposed'
     if (connectedAt !== undefined) return 'connected'
+    if (oauth?.waitingReason() !== undefined && client === undefined) return 'waiting-authorization'
     // The first attempt (before any failure) is connecting whatever the
     // reconnect policy says; only later downtime distinguishes stopped/exhausted.
     if (client !== undefined && failedAttempts === 0) return 'connecting'
@@ -314,7 +364,7 @@ function supervise(
         disposers = await syncTools(generation, ctx, syncOpts, disposers, () => isCurrent(generation), (next) => {
           disposers = next
           if (JSON.stringify(previousNames) !== JSON.stringify([...next.keys()])) notify()
-        })
+        }, authorizationError)
       }
       await discoverResources(generation)
       if (!isCurrent(generation)) return
@@ -387,6 +437,13 @@ function supervise(
     if (!isCurrent(generation)) return
     client = undefined
     clientClosed = undefined
+    // A session waiting for authorization owns the downtime: no attempt can
+    // authenticate until the user acts, so the reconnect budget stays intact.
+    if (oauth?.waitingReason() !== undefined) {
+      connectedAt = undefined
+      notify()
+      return
+    }
     scheduleReconnect()
     notify()
   }
@@ -504,8 +561,18 @@ function supervise(
       },
     )
     let instructions = ''
+    /** Whether a transport was handed to the client: a failure before that owns no transport close to wait for. */
+    let attached = false
     try {
-      await generation.connect(createTransport(config))
+      if (oauth !== undefined) {
+        await oauth.accessToken()
+        // The grant lookup can outlast its supervisor: disposal or a newer
+        // generation retires this one before it owns a transport.
+        if (!isCurrent(generation)) return
+      }
+      const transport = createTransport(config, oauth?.fetch)
+      attached = true
+      await generation.connect(transport)
       if (hasClosed()) {
         attemptSettled = true
         generationDown(generation)
@@ -524,7 +591,7 @@ function supervise(
       // only a live supervisor reports an attempt failure.
       if (isCurrent(generation)) ctx.logger.warn(`${label}: connection attempt failed: ${String(error)}`)
       try { await generation.close() } catch { /* transport already gone */ }
-      const quiesced = hasClosed() || await waitForClose(closed.promise)
+      const quiesced = !attached || hasClosed() || await waitForClose(closed.promise)
       attemptSettled = true
       if (!isCurrent(generation)) return
       if (!quiesced) {
@@ -535,6 +602,9 @@ function supervise(
       }
       generationDown(generation)
       return
+    } finally {
+      // A generation that never received its transport has nothing left open.
+      if (!attached) closed.resolve()
     }
     attemptSettled = true
     if (hasClosed()) {
@@ -577,15 +647,18 @@ function supervise(
     toolNames: inventoryNames,
     connected: () => !disposed && connectedAt !== undefined,
     status: () => {
+      const authorization = oauth?.status()
       const view: McpConnectionStatus = {
         state: state(),
         failedAttempts,
         maxAttempts: policy.maxAttempts,
         ...connectedAt === undefined ? {} : { connectedAtMs: connectedAt },
         ...lastError === undefined ? {} : { lastErrorKind: errorKindOf(lastError) },
+        ...authorization === undefined ? {} : { authorization },
       }
       return view
     },
+    ...oauth === undefined ? {} : { oauth },
     toolDescriptors: () => [...toolInventory],
     instructions: () => serverInstructions,
     resourceUris: () => [...discoveredResourceUris],
@@ -595,6 +668,8 @@ function supervise(
       return () => { subscribers.delete(listener) }
     },
     callTool(rawName: string, args: Record<string, unknown>, exec: { signal?: AbortSignal }): Promise<unknown> {
+      const waiting = authorizationError()
+      if (waiting !== undefined) return Promise.reject(waiting)
       const generation = client
       if (!generation || connectedAt === undefined) return Promise.reject(new Error(`${label}: server is disconnected`))
       return generation.request(
@@ -605,6 +680,8 @@ function supervise(
     },
     resources: {
       async request(request, exec): Promise<JsonValue> {
+        const waiting = authorizationError()
+        if (waiting !== undefined) throw waiting
         const generation = client
         if (!generation || connectedAt === undefined) throw new Error(`${label}: server is disconnected`)
         const options = { signal: exec.signal, timeout: config.toolCallTimeoutMs }
@@ -627,6 +704,7 @@ function supervise(
     },
     async dispose(): Promise<void> {
       disposed = true
+      oauth?.dispose()
       serverInstructions = ''
       discoveredResourceUris = []
       discoveredResourceTemplates = []

@@ -567,7 +567,7 @@ list(): readonly UserMcpServerConfig[]
 subscribe(listener: () => void): () => void
 ```
 
-Source: [`packages/mcp/mcp-user-config/src/index.ts:97`](../../packages/mcp/mcp-user-config/src/index.ts)
+Source: [`packages/mcp/mcp-user-config/src/index.ts:107`](../../packages/mcp/mcp-user-config/src/index.ts)
 
 <a id="ctxtools--toolruntime"></a>
 
@@ -701,7 +701,7 @@ The MCP connection fleet changed: a server's connection state moved, an owner mo
 'mcpManagement/fleet-changed'(): void
 ```
 
-Source: [`packages/mcp/mcp-user-config/src/types.ts:66`](../../packages/mcp/mcp-user-config/src/types.ts)
+Source: [`packages/mcp/mcp-user-config/src/types.ts:121`](../../packages/mcp/mcp-user-config/src/types.ts)
 
 <a id="tools-events"></a>
 

@@ -610,6 +610,108 @@ describe('scheduler dispatch', () => {
     }
   })
 
+  it('resumes a paused recurrence at its first future occurrence without catching up', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      const owner = liveScript(test, 'resume-owner')
+      const anchor = Date.now() + 60_000
+      const record = await test.service.create({
+        prompt: 'hold then resume',
+        rule: { kind: 'every', intervalMs: 300_000, anchor: new Date(anchor).toISOString() },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: owner.session.id },
+      })
+      await test.service.update(record.id, { status: 'paused' }, owner.session.id)
+      await vi.advanceTimersByTimeAsync(12 * 60_000)
+      await settled()
+      expect(owner.followups).toHaveLength(0)
+
+      const resumed = await test.service.update(record.id, { status: 'active' }, owner.session.id)
+      expect(resumed).toMatchObject({ status: 'active', nextDue: anchor + 15 * 60_000 })
+      await settled()
+      expect(owner.followups).toHaveLength(0)
+
+      await vi.advanceTimersByTimeAsync(3 * 60_000)
+      await settled()
+      expect(owner.followups).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(60_000)
+      await waitForDelivery(() => {
+        expect(owner.followups).toHaveLength(1)
+        expect(test.service.list()).toMatchObject([
+          { id: record.id, lastDue: anchor + 15 * 60_000, nextDue: anchor + 20 * 60_000 },
+        ])
+      })
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('resumes a paused one-shot ahead of its due moment and finishes one whose time passed', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      const owner = liveScript(test, 'resume-once')
+      const create = (prompt: string) => test.service.create({
+        prompt,
+        rule: { kind: 'after', delayMs: 30_000 },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: owner.session.id },
+      })
+      const ahead = await create('still ahead')
+      const missed = await create('already missed')
+      await test.service.update(ahead.id, { status: 'paused' }, owner.session.id)
+      await test.service.update(missed.id, { status: 'paused' }, owner.session.id)
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      const resumed = await test.service.update(ahead.id, { status: 'active' }, owner.session.id)
+      expect(resumed).toMatchObject({ status: 'active', nextDue: ahead.createdAt + 30_000 })
+
+      await vi.advanceTimersByTimeAsync(60_000)
+      const finished = await test.service.update(missed.id, { status: 'active' }, owner.session.id)
+      expect(finished).toMatchObject({ id: missed.id, status: 'done' })
+      expect(finished?.nextDue).toBeUndefined()
+      expect(test.service.listRuns(missed.id)).toEqual([])
+      await waitForDelivery(() => {
+        expect(owner.followups).toHaveLength(1)
+      })
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(owner.followups).toHaveLength(1)
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('keeps a finished schedule finished when asked to resume', async () => {
+    const { test, cleanup } = await harness()
+    vi.useFakeTimers()
+    try {
+      const owner = liveScript(test, 'resume-done')
+      const record = await test.service.create({
+        prompt: 'run once',
+        rule: { kind: 'after', delayMs: 30_000 },
+        target: { kind: 'current' },
+        contextMode: 'continue',
+        createdBy: { kind: 'model', sessionId: owner.session.id },
+      })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await waitForDelivery(() => {
+        expect(owner.followups).toHaveLength(1)
+        expect(test.service.list()).toMatchObject([{ id: record.id, status: 'done' }])
+      })
+
+      const resumed = await test.service.update(record.id, { status: 'active' }, owner.session.id)
+      expect(resumed).toMatchObject({ id: record.id, status: 'done' })
+      expect(resumed?.nextDue).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(owner.followups).toHaveLength(1)
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('never fires a paused record and skips an overdue recurrence to its latest slot', async () => {
     const { test, cleanup } = await harness()
     vi.useFakeTimers()

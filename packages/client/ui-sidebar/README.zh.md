@@ -28,6 +28,5 @@ New Session 会启动运行时的页面局部前端 Session Intent。运行时�
 
 ## 已知限制与暂缓事项
 
-- **Session 状态点渲染由 [ui-workspace](../ui-workspace/README.md) 持有**：没有可用的 done/error 通知数据源。
+- **Session 状态点渲染由 [ui-workspace](../ui-workspace/README.md) 持有**：各行的未读标记读取自 [session-reading](../session-reading/README.md) 的 `useSessionReading` 根 hook；外壳自身不渲染任何状态。
 - **Workspace 浏览行为由组合持有**：分组、排序、搜索与行状态都属于 [ui-workspace](../ui-workspace/README.md)，不属于此外壳。
-- **「New task completed」未读标记是本地查看状态**：完成时间 > 上次查看时间这一事实永远不会到达宿主。

@@ -60,7 +60,7 @@ describe('workspace browser rows', () => {
   it('omits only an empty leading status slot in the hierarchy-free flat list', () => {
     const idle: SessionNode = {
       id: sid('flat'), title: 'Flat Session', blank: false, running: false,
-      runningSubagentCount: 0, completed: false, pinned: false, updatedAt: 0,
+      runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
     }
     const view = render(<SessionNodeItem node={idle} currentId={undefined} now={0} onOpen={vi.fn()}
       onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} flat t={t} />)
@@ -80,7 +80,7 @@ describe('workspace browser rows', () => {
       workspace: 'Workspace context',
       running: true,
       runningSubagentCount: 0,
-      completed: false,
+      unread: false, unreadFailed: false,
       snippet: 'matching message excerpt',
     }
     render(<SearchResultItem result={result} currentId={result.id} onOpen={onOpen} t={t} />)
@@ -102,7 +102,7 @@ describe('workspace browser rows', () => {
   ] as const)('shows %s ahead of running in search results', (pendingInteraction, label) => {
     const result: SearchResultNode = {
       id: sid(pendingInteraction), title: 'Needs input', workspace: 'Project',
-      pendingInteraction, running: true, runningSubagentCount: 0, completed: false,
+      pendingInteraction, running: true, runningSubagentCount: 0, unread: false, unreadFailed: false,
     }
     render(<SearchResultItem result={result} currentId={undefined} onOpen={vi.fn()} t={t} />)
     const row = screen.getByRole('treeitem')
@@ -131,7 +131,7 @@ describe('workspace browser rows', () => {
   it('renders and opens a selected running Session row', () => {
     const node: SessionNode = {
       id: sid('session'), title: 'Session', blank: false, running: true,
-      runningSubagentCount: 0, completed: false, pinned: false, updatedAt: 0,
+      runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
     }
     const onOpen = vi.fn()
     render(
@@ -147,36 +147,46 @@ describe('workspace browser rows', () => {
     expect(onOpen).toHaveBeenCalledWith(node.id)
   })
 
-  it('shows the green done dot only on a finished, unviewed session (live activity wins the slot)', () => {
-    const renderRow = (over: Partial<SessionNode>) => render(
-      <SessionNodeItem
-        node={{
-          id: sid('s1'), title: 'One', blank: false, running: false,
-          runningSubagentCount: 0, completed: false, pinned: false, updatedAt: 0, ...over,
-        }}
-        currentId={undefined} now={0} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t}
-      />,
-    )
-    const stateDot = (view: ReturnType<typeof renderRow>) =>
-      view.container.querySelector('[data-state]')
-    // No completion reminder, not running: no state dot at all.
+  /** Render one session row over the base node, merged with `over`. */
+  const renderRow = (over: Partial<SessionNode>) => render(
+    <SessionNodeItem
+      node={{
+        id: sid('s1'), title: 'One', blank: false, running: false,
+        runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0, ...over,
+      }}
+      currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t}
+    />,
+  )
+
+  it('shows the green done dot only on an unread session (live activity wins the slot)', () => {
+    // Up to date and not running: no state dot at all.
     const plain = renderRow({})
-    expect(stateDot(plain)).toBeNull()
+    expect(plain.container.querySelector('[data-state]')).toBeNull()
+    expect(screen.queryByText('空闲')).toBeNull()
     plain.unmount()
-    // Completed while unviewed: the green done dot.
-    const done = renderRow({ completed: true })
-    expect(done.container.querySelector('[data-state="done"]')).not.toBeNull()
-    done.unmount()
+    // Unread: the green done dot and its label.
+    const unread = renderRow({ unread: true })
+    expect(unread.container.querySelector('[data-state="done"]')).not.toBeNull()
+    expect(screen.getByText('未读')).toBeTruthy()
+    unread.unmount()
     // Running wins the slot: the animated ongoing dot, no done dot.
-    const running = renderRow({ completed: true, running: true })
+    const running = renderRow({ unread: true, running: true })
     expect(running.container.querySelector('[data-state="ongoing"]')).not.toBeNull()
     expect(running.container.querySelector('[data-state="done"]')).toBeNull()
+    expect(screen.queryByText('未读')).toBeNull()
     running.unmount()
     // Descendant activity also wins until the last running descendant stops.
-    const delegated = renderRow({ completed: true, runningSubagentCount: 1 })
+    const delegated = renderRow({ unread: true, runningSubagentCount: 1 })
     expect(delegated.container.querySelector('[data-state="ongoing"]')).not.toBeNull()
     expect(delegated.container.querySelector('[data-state="done"]')).toBeNull()
+  })
+
+  it('swaps the unread dot for the error dot and its label when the unread turn failed', () => {
+    const failed = renderRow({ unread: true, unreadFailed: true })
+    expect(failed.container.querySelector('[data-state="error"]')).not.toBeNull()
+    expect(failed.container.querySelector('[data-state="done"]')).toBeNull()
+    expect(screen.getByText('运行失败')).toBeTruthy()
   })
 
   it('shows descendant activity without describing an idle parent as running', () => {
@@ -184,7 +194,7 @@ describe('workspace browser rows', () => {
     try {
       const node: SessionNode = {
         id: sid('owner'), title: 'Delegating', blank: false, running: false,
-        runningSubagentCount: 2, completed: false, pinned: false, updatedAt: 0,
+        runningSubagentCount: 2, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -206,7 +216,7 @@ describe('workspace browser rows', () => {
     try {
       const node: SessionNode = {
         id: sid('owner'), title: 'Delegating', blank: false, running: true,
-        runningSubagentCount: 1, completed: false, pinned: false, updatedAt: 0,
+        runningSubagentCount: 1, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -227,7 +237,7 @@ describe('workspace browser rows', () => {
   it('keeps child activity as a secondary status while user attention is primary', () => {
     const node: SessionNode = {
       id: sid('owner'), title: 'Needs input', blank: false, pendingInteraction: 'question',
-      running: false, runningSubagentCount: 1, completed: false, pinned: false, updatedAt: 0,
+      running: false, runningSubagentCount: 1, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
     }
     render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
       onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -238,15 +248,24 @@ describe('workspace browser rows', () => {
     expect(screen.getByText('1 个子代理运行中')).toBeTruthy()
   })
 
-  it('shows the green done dot on a finished search result row', () => {
-    render(<SearchResultItem
+  it('shows the unread dot and label on a search result row, and nothing on an idle one', () => {
+    const view = render(<SearchResultItem
       result={{
         id: sid('result'), title: 'Done', workspace: 'Workspace', running: false,
-        runningSubagentCount: 0, completed: true,
+        runningSubagentCount: 0, unread: true, unreadFailed: false,
       }}
       currentId={undefined} onOpen={vi.fn()} t={t}
     />)
     expect(screen.getByRole('treeitem').querySelector('[data-state="done"]')).not.toBeNull()
+    expect(screen.getByText('未读')).toBeTruthy()
+    view.rerender(<SearchResultItem
+      result={{
+        id: sid('result'), title: 'Done', workspace: 'Workspace', running: false,
+        runningSubagentCount: 0, unread: false, unreadFailed: false,
+      }}
+      currentId={undefined} onOpen={vi.fn()} t={t}
+    />)
+    expect(screen.queryByText('未读')).toBeNull()
   })
 
   it('workspace row menu opens on the ellipsis, renames, and shows the danger delete row', () => {
@@ -327,7 +346,7 @@ describe('workspace browser rows', () => {
     try {
       const node: SessionNode = {
         id: sid('s-blank'), title: 'ignored', blank: true, running: false,
-        runningSubagentCount: 0, completed: false, pinned: false, updatedAt: 0,
+        runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={node.id} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -354,7 +373,7 @@ describe('workspace browser rows', () => {
     const onArchive = vi.fn()
     const node: SessionNode = {
       id: sid('s1'), title: 'One', blank: false, running: false,
-      runningSubagentCount: 0, completed: false, pinned: false, updatedAt: 0,
+      runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
     }
     render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={onOpen}
       onRename={onRename} onFork={onFork} onArchive={onArchive} t={t} />)
@@ -386,7 +405,7 @@ describe('workspace browser rows', () => {
     const onPinToggle = vi.fn()
     const node: SessionNode = {
       id: sid('s1'), title: 'One', blank: false, running: false,
-      runningSubagentCount: 0, completed: false, pinned: false, updatedAt: 0,
+      runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
     }
     const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
       onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} onPinToggle={onPinToggle} t={t} />)
@@ -418,7 +437,7 @@ describe('workspace browser rows', () => {
     try {
       const node: SessionNode = {
         id: sid('s1'), title: 'Hovered', blank: false, running: true,
-        runningSubagentCount: 0, completed: false, pinned: false, updatedAt: 0,
+        runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={60_000} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -449,7 +468,7 @@ describe('workspace browser rows', () => {
     try {
       const node: SessionNode = {
         id: sid(pendingInteraction), title: 'Needs input', blank: false,
-        pendingInteraction, running: true, runningSubagentCount: 0, completed: false, pinned: false, updatedAt: 0,
+        pendingInteraction, running: true, runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
       }
       const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -476,7 +495,7 @@ describe('workspace browser rows', () => {
     try {
       const node: SessionNode = {
         id: sid('s1'), title: 'Quiet', blank: false, running: false,
-        runningSubagentCount: 0, completed: false, pinned: false, updatedAt: 0,
+        runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -489,28 +508,57 @@ describe('workspace browser rows', () => {
     }
   })
 
-  it('completed hover card shows the Completed status line', () => {
+  it.each([
+    [{ unread: true, unreadFailed: false }, '未读'],
+    [{ unread: true, unreadFailed: true }, '运行失败'],
+  ] as const)('unread hover card repeats the %s status line', (over, label) => {
     vi.useFakeTimers()
     try {
-      const node: SessionNode = {
+      render(<SessionNodeItem node={{
         id: sid('s1'), title: 'Done', blank: false, running: false,
-        runningSubagentCount: 0, completed: true, pinned: false, updatedAt: 0,
-      }
-      render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+        runningSubagentCount: 0, pinned: false, updatedAt: 0, ...over,
+      }} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
       fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
       act(() => { vi.advanceTimersByTime(500) })
-      // Row's visually-hidden reminder label plus the hover card's status line.
-      expect(screen.getAllByText('已完成')).toHaveLength(2)
+      // Row's visually-hidden label plus the hover card's status line.
+      expect(screen.getAllByText(label)).toHaveLength(2)
     } finally {
       vi.useRealTimers()
     }
   })
 
+  it('row menu toggles the reading mark through onReadingToggle and hides the entry without one', () => {
+    const onReadingToggle = vi.fn()
+    const node: SessionNode = {
+      id: sid('s1'), title: 'One', blank: false, running: false,
+      runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
+    }
+    const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} onReadingToggle={onReadingToggle} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
+    // The menu offers the mark the row does not carry yet, and reports the row's current state.
+    fireEvent.click(screen.getByRole('menuitem', { name: '标为未读' }))
+    expect(onReadingToggle).toHaveBeenCalledExactlyOnceWith(node.id, false)
+
+    view.rerender(<SessionNodeItem node={{ ...node, unread: true }} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} onReadingToggle={onReadingToggle} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '标为已读' }))
+    expect(onReadingToggle).toHaveBeenLastCalledWith(node.id, true)
+
+    // A surface with no reading seam (the assembled graph without the plugin) hides the entry.
+    view.rerender(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+    fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
+    expect(screen.queryByRole('menuitem', { name: '标为未读' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '标为已读' })).toBeNull()
+  })
+
   it('draggable row wires start/end and gates hover/drop on an active same-group drag', () => {
     const node: SessionNode = {
       id: sid('s1'), title: 'Drag me', blank: false, running: false,
-      runningSubagentCount: 0, completed: false, pinned: false, updatedAt: 0,
+      runningSubagentCount: 0, unread: false, unreadFailed: false, pinned: false, updatedAt: 0,
     }
     const inactive = dragProps()
     const { rerender } = render(

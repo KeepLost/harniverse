@@ -28,6 +28,9 @@ import type { HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRu
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: pulls the optional `useSessionReading` root hook into the browser's props.
+import type {} from '@deepseek-ai/dsh-client-session-reading/client'
+import type { SessionReadingUnreadRows } from '@deepseek-ai/dsh-client-session-reading/client'
 import type {
   ClientContext, ConversationSnapshot, RpcResult, SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -219,6 +222,22 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
   insertSessionBefore: (workspaceId: WorkspaceId, sessionId: SessionId, beforeSessionId?: SessionId) => Promise<void>
   /** Adopt a picked host directory as a real Workspace before targeting a Session. */
   createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
+}
+
+/**
+ * The reading share each row list receives from the browser root: the unread
+ * ledger behind the status dots and the row menu's manual mark. Absent while
+ * the session-reading plugin is not composed.
+ */
+export interface SessionReadingFace {
+  /** Unread rows keyed by session id; an absent key reads as up to date. */
+  readonly unread: SessionReadingUnreadRows
+  /**
+   * Toggle one session's reading mark.
+   * @param sessionId - session the row menu addressed.
+   * @param unread - the row's current state.
+   */
+  readonly toggle: (sessionId: SessionId, unread: boolean) => void
 }
 
 /** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */

@@ -17,6 +17,7 @@ import z from '@deepseek-ai/schemastery'
 import { resolveReconnectPolicy, startSharedConnection } from './connection.ts'
 import type { Config } from './index.ts'
 import { Config as McpClientConfig } from './config.ts'
+import { oauthConfigOf } from './oauth-options.ts'
 import { connectionsOf, MCP_CONNECTIONS_SERVICE } from './shared-service.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -53,6 +54,7 @@ export async function ownerApply(ctx: Context, config: McpOwnerConfig): Promise<
   // construction that bypassed Schemastery) rejects THIS instance before any
   // effect registers.
   const reconnect = resolveReconnectPolicy(config.reconnect, `mcp-client(${config.serverName}): reconnect`)
+  oauthConfigOf(config, `mcp-client(${config.serverName})`)
   const connections = connectionsOf(ctx)
   if (connections === undefined) {
     throw new Error('mcp-client-owner: no shared-connection registry serves this composition')

@@ -168,6 +168,9 @@
     { "path": "./packages/api/browser-controller" },
     { "path": "./packages/api/terminal-controller" },
     { "path": "./packages/api/remotes/tsconfig.host.json" },
+    // Host leaf of the split session-reading package: the sessionReading
+    // Remote service that api-remotes forwards change signals for.
+    { "path": "./packages/client/session-reading/tsconfig.host.json" },
     { "path": "./packages/typert/loader" },
     { "path": "./packages/session/session-import" },
     { "path": "./packages/session/session-persistence" },

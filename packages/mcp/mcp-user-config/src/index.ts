@@ -19,7 +19,7 @@ import {
   mcpServerCapabilityId,
   probeServer,
 } from '@deepseek-ai/dsh-mcp-client'
-import type { Config as McpClientConfig, ReconnectConfig } from '@deepseek-ai/dsh-mcp-client'
+import type { Config as McpClientConfig, McpOAuthCredentialStore, OAuthInput, ReconnectConfig } from '@deepseek-ai/dsh-mcp-client'
 import type { McpProbeResult } from '@deepseek-ai/dsh-mcp-client/types'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -47,6 +47,14 @@ const Reconnect = z.object({
   maxAttempts: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(10),
 })
 
+/** OAuth options repeated here so they remain visible in the settings descriptor; `mcp-client` re-judges every rule at load. */
+const OAuth = z.union([z.const(true), z.object({
+  clientId: z.string(),
+  scope: z.string(),
+  requestTimeoutMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(10_000),
+  authorizationTimeoutMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(600_000),
+})])
+
 /** One user-configured MCP server after schema defaults are applied. */
 export interface UserMcpServerConfig {
   /** Stable identity within a captured settings generation. */
@@ -69,6 +77,8 @@ export interface UserMcpServerConfig {
   url?: string
   /** Streamable HTTP headers; values are secret settings fields. */
   headers: Record<string, string>
+  /** OAuth 2.1 authorization of a Streamable HTTP entry; omitted entries send no OAuth token. */
+  oauth?: OAuthInput
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Attributed instruction budget; omission uses the client's 32 KiB default. */
@@ -141,6 +151,7 @@ const UserMcpServer = z.object({
   cwd: z.string().default(''),
   url: z.string(),
   headers: z.dict(z.string().role('secret')).default({}),
+  oauth: OAuth,
   toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
   maxInstructionBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
   failOnStartupError: z.boolean().default(false),
@@ -189,10 +200,12 @@ declare module '@deepseek-ai/cordis' {
 
 const CONFIG_KEYS = new Set(['servers'])
 const SERVER_KEYS = new Set([
-  'id', 'enabled', 'transport', 'serverName', 'command', 'args', 'env', 'cwd', 'url', 'headers',
+  'id', 'enabled', 'transport', 'serverName', 'command', 'args', 'env', 'cwd', 'url', 'headers', 'oauth',
   'toolCallTimeoutMs', 'maxInstructionBytes', 'failOnStartupError', 'reconnect',
 ])
 const RECONNECT_KEYS = new Set(['enabled', 'initialDelayMs', 'maxDelayMs', 'maxAttempts'])
+const OAUTH_KEYS = new Set(['clientId', 'scope', 'requestTimeoutMs', 'authorizationTimeoutMs'])
+const LOOPBACK_HOSTS = new Set(['localhost', '[::1]'])
 
 /** One mounted child (owner or registrar) retained until its setting leaves. */
 interface ChildRecord {
@@ -239,6 +252,7 @@ function toOwnerConfig(entry: UserMcpServerConfig): McpClientConfig & { serverId
     transport: 'streamable-http',
     url: entry.url as string,
     headers: { ...entry.headers },
+    ...entry.oauth === undefined ? {} : { oauth: entry.oauth },
   }
 }
 
@@ -257,11 +271,52 @@ function validateServerEntry(entry: UserMcpServerConfig, path: string): void {
     if (entry.command !== undefined) throw new TypeError(`mcp-user-config: ${path}.command is only valid for stdio`)
   }
 
+  validateOAuth(entry, path)
   assertKnownKeys(entry.reconnect, RECONNECT_KEYS, `${path}.reconnect`)
   const { initialDelayMs, maxDelayMs } = entry.reconnect
   if (initialDelayMs !== undefined && maxDelayMs !== undefined && initialDelayMs > maxDelayMs) {
     throw new TypeError(`mcp-user-config: ${path}.reconnect.initialDelayMs must be less than or equal to maxDelayMs`)
   }
+}
+
+/**
+ * Judge one entry's `oauth` field against the rest of the entry. The schema
+ * already bounds every option value; these are the rules it cannot express,
+ * judged here so a settings write fails closed before an owner mounts.
+ */
+function validateOAuth(entry: UserMcpServerConfig, path: string): void {
+  const oauth = entry.oauth as OAuthInput | null | undefined
+  if (oauth === undefined) return
+  if (entry.transport !== 'streamable-http') throw new TypeError(`mcp-user-config: ${path}.oauth is only valid for streamable-http`)
+  if (oauth !== true && (typeof oauth !== 'object' || oauth === null)) {
+    throw new TypeError(`mcp-user-config: ${path}.oauth must be true or an options object`)
+  }
+  if (oauth !== true) {
+    assertKnownKeys(oauth, OAUTH_KEYS, `${path}.oauth`)
+    for (const key of ['clientId', 'scope'] as const) {
+      if (oauth[key] !== undefined && oauth[key].trim() === '') throw new TypeError(`mcp-user-config: ${path}.oauth.${key} must not be blank`)
+    }
+  }
+  if (Object.keys(entry.headers).some(name => name.toLowerCase() === 'authorization')) {
+    throw new TypeError(`mcp-user-config: ${path}.oauth cannot be combined with an Authorization header: OAuth owns the Authorization header`)
+  }
+  if (!isHttpsOrLoopback(entry.url as string)) {
+    throw new TypeError(`mcp-user-config: ${path}.url: OAuth requires HTTPS except for loopback HTTP`)
+  }
+}
+
+function isHttpsOrLoopback(value: string): boolean {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return false
+  }
+  if (url.protocol === 'https:') return true
+  if (url.protocol !== 'http:') return false
+  if (LOOPBACK_HOSTS.has(url.hostname)) return true
+  const parts = url.hostname.split('.')
+  return parts.length === 4 && parts[0] === '127' && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)
 }
 
 /**
@@ -413,6 +468,14 @@ export interface McpFleetEntry {
   readonly registered: boolean
 }
 
+/**
+ * The credentials seam an OAuth entry's probe reads its stored grant through
+ * (structural: this package does not depend on the credentials package).
+ */
+function credentialStoreOf(ctx: Context): McpOAuthCredentialStore | undefined {
+  return ctx.get('credentials') as McpOAuthCredentialStore | undefined
+}
+
 /** Mint the stable registry id a registration mounts under. */
 function registeredIdOf(serverName: string): string {
   return `registered-${serverName}`
@@ -519,14 +582,17 @@ function applyOwnerFleet(
   })
 
   /**
-   * Probe one fleet entry's configuration without mounting an owner.
+   * Probe one fleet entry's configuration without mounting an owner. An
+   * OAuth entry is asked with its stored grant only; the probe never starts
+   * an authorization.
    * @param serverId - stable identity of the configured or registered server.
    * @returns the stage-classified probe outcome and independent cleanup result.
    */
   const probeEntry = async (serverId: string): Promise<McpProbeResult> => {
     const candidate = fleetEntryOf(serverId)
     if (candidate === undefined) throw new Error(`mcp-user-config: unknown server "${serverId}"`)
-    return probeServer(toOwnerConfig(candidate.entry))
+    const oauth = candidate.entry.oauth === undefined ? undefined : credentialStoreOf(ctx)
+    return probeServer(toOwnerConfig(candidate.entry), oauth === undefined ? {} : { oauth })
   }
 
   const registrationListeners = new Set<() => void>()

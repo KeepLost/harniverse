@@ -20,8 +20,8 @@ Two defects, and one official defect confirmed absent here:
 ## Alternatives considered
 
 - **Recheck the record before `runMaintenance` instead of inside it** — rejected: the first claim waits for the idle phase inside `runMaintenance`, so a check before the call leaves the same window open.
-- **Record a `skipped` run for an unserved slot, as the archived-target path does** — rejected: after a resume the record's `nextDue` is still due, so the same slot would then log a succeeded run beside the skipped one, and a deleted record would keep an orphan row.
-- **Advance an unserved slot so a resumed record does not catch up** — rejected: `advance` completes a one-shot (`done`), which would silently finish a paused task. Resume semantics are a separate decision; the official package resumes from the first future occurrence.
+- **Record a `skipped` run for an unserved slot, as the archived-target path does** — rejected: a deleted record would keep an orphan row.
+- **Advance an unserved slot so a resumed record does not catch up** — rejected: `advance` completes a one-shot (`done`), which would silently finish a paused task. Resume semantics are decided in [the resume note](../feature/2026-11-26-scheduler-resume-first-future-occurrence.md): a resumed record moves to its first future occurrence, as the official package does.
 - **Guard on status only** — rejected: a rule patch recomputes `nextDue`, so the retired slot of the old rule would still deliver and `advance` would then overwrite the new schedule.
 - **Port the official draft-attachment retention fix** — not done: its precondition is absent (Problem 3). Take it together with any adoption of the official session-retain facets, which are what retire scopes on a switch.
 
@@ -30,7 +30,7 @@ Two defects, and one official defect confirmed absent here:
 - On Windows, `dsh --profile <name> --dump-config-schema` follows a drive-letter Include path. Linux and macOS behavior is unchanged: `C:` stays a URL scheme there, as it is for the vendored Include.
 - Pausing or deleting a schedule from the moment its dispatch starts waiting never delivers. A schedule edited during the wait delivers the edited prompt at its current slot. A long busy turn yields one delivery, for the latest missed slot, with `lastDue`, `lastRunAt`, and the envelope's fired and next moments taken at the real enqueue time.
 - The at-least-once contract narrows to the enqueue itself: a crash between `followup()` and `advance` still replays one dispatch.
-- Resume semantics are unchanged: a paused record keeps its `nextDue`, so resuming after a missed slot delivers once at once.
+- A paused record keeps its `nextDue`, and [the resume note](../feature/2026-11-26-scheduler-resume-first-future-occurrence.md) replaces it on resume with the first future occurrence, so resuming after a missed slot delivers nothing.
 
 ## Testing
 

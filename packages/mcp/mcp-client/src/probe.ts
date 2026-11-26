@@ -12,6 +12,10 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { oauthConfigOf } from './oauth-options.ts'
+import { createOAuthSession } from './oauth-session.ts'
+import type { McpOAuthSessionHooks } from './oauth-session.ts'
+import { mcpOAuthServerKey } from './oauth-store.ts'
 import { createTransport } from './transport.ts'
 import type { Config } from './config.ts'
 import type {
@@ -22,6 +26,7 @@ import type {
   McpProbeStage,
   McpProbeSuccess,
 } from './types.ts'
+import type { McpOAuthCredentialStore } from './types.ts'
 
 /** Default whole-probe budget (ms): interactive surfaces need a bounded answer. */
 const DEFAULT_PROBE_TIMEOUT_MS = 10_000
@@ -35,14 +40,26 @@ const PROBE_MAX_TOOL_NAMES = 512
 /** Closure grace: the SDK's stdio transport owns two two-second termination periods. */
 const PROBE_CLOSE_GRACE_MS = 5_000
 
-function resolveProbeOptions(options: McpProbeOptions) {
+/** A probe owns no supervisor, so its OAuth session reports a wait to nobody and is never resumed. */
+const PROBE_SESSION_HOOKS: Pick<McpOAuthSessionHooks, 'onWaiting'> = { onWaiting: () => {} }
+
+/** Validated probe options with every default applied. */
+interface ProbeSpec {
+  timeoutMs: number
+  maxPages: number
+  maxToolNames: number
+  signal: AbortSignal | undefined
+  oauth: McpOAuthCredentialStore | undefined
+}
+
+function resolveProbeOptions(options: McpProbeOptions): ProbeSpec {
   const timeoutMs = options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS
   const maxPages = options.maxPages ?? PROBE_MAX_PAGES
   const maxToolNames = options.maxToolNames ?? PROBE_MAX_TOOL_NAMES
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new TypeError('probeServer: timeoutMs must be a positive finite number')
   if (!Number.isSafeInteger(maxPages) || maxPages < 1) throw new TypeError('probeServer: maxPages must be a positive safe integer')
   if (!Number.isSafeInteger(maxToolNames) || maxToolNames < 1) throw new TypeError('probeServer: maxToolNames must be a positive safe integer')
-  return { timeoutMs, maxPages, maxToolNames, signal: options.signal }
+  return { timeoutMs, maxPages, maxToolNames, signal: options.signal, oauth: options.oauth }
 }
 
 /** One probe message rendered without stack traces or transport internals. */
@@ -80,17 +97,27 @@ function withBudget<T>(operation: Promise<T>, remainingMs: number, stage: McpPro
 }
 
 /**
- * Probe a server without registering tools or reserving its namespace.
+ * Probe a server without registering tools or reserving its namespace. An
+ * OAuth-configured server is asked with its stored grant only: the probe
+ * never registers a client, redirects, or opens a browser.
  * @param config - transport configuration; its startup budget does not bound the probe.
- * @param options - whole-probe budget, listing caps, and cancellation signal.
+ * @param options - whole-probe budget, listing caps, cancellation signal, and the credentials seam an OAuth entry reads.
  * @returns the connect/list outcome and independent cleanup result after bounded closure.
- * @throws for invalid options.
+ * @throws for invalid options or an OAuth configuration the connection could not run with.
  */
 export async function probeServer(config: Config, options: McpProbeOptions = {}): Promise<McpProbeResult> {
   const spec = resolveProbeOptions(options)
   const startedAt = Date.now()
   const remaining = (): number => spec.timeoutMs - (Date.now() - startedAt)
   const client = new Client({ name: 'dsh-mcp-probe', version: '0.0.0' }, { capabilities: {} })
+  const oauthEnabled = oauthConfigOf(config, 'probeServer')
+  const oauth = oauthEnabled === undefined ? undefined : createOAuthSession({
+    config: oauthEnabled.config,
+    options: oauthEnabled.options,
+    serverKey: mcpOAuthServerKey(config),
+    store: spec.oauth,
+    hooks: PROBE_SESSION_HOOKS,
+  })
 
   let closing: Promise<McpProbeCleanup> | undefined
   const closeProbe = (): Promise<McpProbeCleanup> => {
@@ -121,7 +148,8 @@ export async function probeServer(config: Config, options: McpProbeOptions = {})
   try {
     // A signal aborted before the probe starts never touches the wire.
     if (spec.signal?.aborted) throw new Error('probe aborted')
-    await withBudget(client.connect(createTransport(config)), remaining(), 'connect')
+    if (oauth !== undefined) await withBudget(oauth.accessToken(), remaining(), 'connect')
+    await withBudget(client.connect(createTransport(config, oauth?.fetch)), remaining(), 'connect')
     /* v8 ignore next -- MCP requires serverInfo on initialize; the guard
        only keeps the field optional for peers that omit it. */
     const identity = client.getServerVersion()
@@ -163,5 +191,6 @@ export async function probeServer(config: Config, options: McpProbeOptions = {})
   } finally {
     spec.signal?.removeEventListener('abort', abort)
   }
+  oauth?.dispose()
   return { ...result, ...await closeProbe() }
 }

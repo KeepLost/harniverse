@@ -8,6 +8,7 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import type { SessionReadingState } from '@deepseek-ai/dsh-client-session-reading/client'
 import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
@@ -1466,5 +1467,122 @@ describe('WorkspaceBrowser', () => {
     fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: 'needle' } })
     const row = screen.getByText('Needle A').closest('[role="treeitem"]') as HTMLElement
     expect(row.hasAttribute('draggable')).toBe(false)
+  })
+})
+
+describe('WorkspaceBrowser reading seam', () => {
+  const state = (unread: SessionReadingState['unread'], report = vi.fn()) => ({ unread, mark: vi.fn(), report })
+
+  it('marks unread rows with the done or error dot and routes the row-menu mark', () => {
+    const reading = state({ [sid('fresh')]: { failed: false }, [sid('broken')]: { failed: true } })
+    const b = mount({
+      useSessions: hook(sessionState([summary('fresh', 3), summary('broken', 2), summary('quiet', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['fresh', 'broken', 'quiet'])])),
+      useSessionReading: hook(reading),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    expect(screen.getByText('未读')).toBeTruthy()
+    expect(screen.getByText('运行失败')).toBeTruthy()
+    // A row already read carries no marker at all.
+    expect(screen.queryByText('quiet')).toBeTruthy()
+    expect(screen.queryAllByText('空闲')).toHaveLength(0)
+    // The menu offers the mark the row does not carry and reports the row's state.
+    fireEvent.click(screen.getByRole('button', { name: '会话“fresh”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '标为已读' }))
+    expect(reading.mark).toHaveBeenCalledExactlyOnceWith(sid('fresh'), 'read')
+    fireEvent.click(screen.getByRole('button', { name: '会话“quiet”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '标为未读' }))
+    expect(reading.mark).toHaveBeenLastCalledWith(sid('quiet'), 'unread')
+    b.view.unmount()
+  })
+
+  it('lends the reading mark to search rows and the flat list', () => {
+    const reading = state({ [sid('fresh')]: { failed: false } })
+    const b = mount({
+      useSessions: hook(sessionState([summary('fresh', 3), summary('quiet', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['fresh', 'quiet'])])),
+      useSessionReading: hook(reading),
+    })
+    b.store.actions.setGroupBy('flat')
+    rerender(b, {})
+    expect(screen.getByText('未读')).toBeTruthy()
+    fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: 'fresh' } })
+    expect(screen.getByText('未读')).toBeTruthy()
+  })
+
+  it('reports whether the selected session currently has a rendered row', () => {
+    const reading = state({}, vi.fn())
+    const sessions = [summary('kept', 9), summary('other', 8)]
+    const b = mount({
+      useSessions: hook(sessionState(sessions, { current: sid('kept') })),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['kept', 'other'])])),
+      useSessionReading: hook(reading),
+    })
+    // The selected session's group opens by default, so its row is on screen.
+    expect(reading.report).toHaveBeenLastCalledWith(sid('kept'), true)
+    fireEvent.click(screen.getByText('alpha'))
+    expect(screen.queryByText('kept')).toBeNull()
+    expect(reading.report).toHaveBeenLastCalledWith(sid('kept'), false)
+    fireEvent.click(screen.getByText('alpha'))
+    expect(reading.report).toHaveBeenLastCalledWith(sid('kept'), true)
+    // A hidden row behind a folded overflow slice counts as not rendered.
+    const overflow = [summary('kept', 9), ...Array.from({ length: 5 }, (_, index) => summary(`fill-${index}`, 8 - index))]
+    rerender(b, {
+      useSessions: hook(sessionState(overflow, { current: sid('fill-4') })),
+      useWorkspaces: hook(workspaceState([workspace('alpha', overflow.map(item => item.id))])),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByText('alpha'))
+    expect(screen.queryByText('fill-4')).toBeNull()
+    expect(reading.report).toHaveBeenLastCalledWith(sid('fill-4'), false)
+    fireEvent.click(screen.getByRole('button', { name: '展开其余 1 个会话' }))
+    expect(screen.getByText('fill-4')).toBeTruthy()
+    expect(reading.report).toHaveBeenLastCalledWith(sid('fill-4'), true)
+    // Search, the flat list, and the collapsed rail each replace the tree.
+    fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: 'nothing-matches' } })
+    expect(reading.report).toHaveBeenLastCalledWith(sid('fill-4'), false)
+    // Leaving search remounts the tree, whose transient overflow expansion
+    // starts over: the sixth row is folded again until the reader expands it.
+    fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: '' } })
+    expect(reading.report).toHaveBeenLastCalledWith(sid('fill-4'), false)
+    fireEvent.click(screen.getByRole('button', { name: '展开其余 1 个会话' }))
+    expect(reading.report).toHaveBeenLastCalledWith(sid('fill-4'), true)
+    // The flat list renders every row.
+    b.store.actions.setGroupBy('flat')
+    rerender(b, {})
+    expect(reading.report).toHaveBeenLastCalledWith(sid('fill-4'), true)
+    rerender(b, { wide: false })
+    expect(reading.report).toHaveBeenLastCalledWith(sid('fill-4'), false)
+    b.view.unmount()
+  })
+
+  it('survives the reading seam appearing and disappearing under a mounted browser', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const b = mount({
+        useSessions: hook(sessionState([summary('kept', 9)])),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['kept'])])),
+      })
+      fireEvent.click(screen.getByText('alpha'))
+      expect(screen.getByText('kept')).toBeTruthy()
+      rerender(b, { useSessionReading: hook(state({ [sid('kept')]: { failed: false } })) })
+      expect(screen.getByText('未读')).toBeTruthy()
+      delete b.props.useSessionReading
+      rerender(b, {})
+      expect(screen.queryByText('未读')).toBeNull()
+      expect(screen.getByText('kept')).toBeTruthy()
+      rerender(b, { useSessionReading: hook(state({ [sid('kept')]: { failed: true } })) })
+      expect(screen.getByText('运行失败')).toBeTruthy()
+      // Only the stateless bridge remounts: a query typed before the seam moved stays in the search box.
+      fireEvent.change(screen.getByPlaceholderText('搜索会话…'), { target: { value: 'kept' } })
+      delete b.props.useSessionReading
+      rerender(b, {})
+      rerender(b, { useSessionReading: hook(state({ [sid('kept')]: { failed: true } })) })
+      expect(screen.getByPlaceholderText('搜索会话…')).toHaveProperty('value', 'kept')
+      expect(screen.getByText('kept')).toBeTruthy()
+      expect(error).not.toHaveBeenCalled()
+    } finally {
+      error.mockRestore()
+    }
   })
 })

@@ -62,6 +62,20 @@ export function subsequentDue(rule: SchedulerRule, lastDue: number): number | un
 }
 
 /**
+ * Compute the first due moment strictly after a resume: an `every` rule
+ * moves to its next boundary past `now`, and a one-shot keeps its pending
+ * moment only while that moment still lies ahead.
+ * @param rule - validated rule.
+ * @param pending - due moment the record held before it was paused.
+ * @param now - resume epoch ms.
+ * @returns the resumed due epoch ms, or `undefined` when no occurrence remains.
+ */
+export function resumedDue(rule: SchedulerRule, pending: number | undefined, now: number): number | undefined {
+  if (rule.kind === 'every') return subsequentDue(rule, now)
+  return pending !== undefined && pending > now ? pending : undefined
+}
+
+/**
  * Advance one overdue `every` due slot to its latest missed boundary, the
  * skip-to-latest missed policy; one-shot rules keep their slot.
  * @param rule - validated rule.

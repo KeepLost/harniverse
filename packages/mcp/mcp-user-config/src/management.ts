@@ -1,9 +1,10 @@
 /**
  * Management face over the shared MCP connections: per-server status (derived
- * connection state plus the current tool inventory) and one authorized
- * restart per stable server id. The provider instantiates this service in the
- * host/base scope; both Remote methods require `harniverse.administer`, the
- * same authority settings writes carry.
+ * connection state plus the current tool inventory), one authorized restart
+ * per stable server id, the passive probe, and the explicit OAuth
+ * authorization the settings page drives. The provider instantiates this
+ * service in the host/base scope; every Remote method requires
+ * `harniverse.administer`, the same authority settings writes carry.
  *
  * @module
  */
@@ -11,10 +12,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { RECONNECT_DEFAULTS } from '@deepseek-ai/dsh-mcp-client'
-import type { McpConnectionsService } from '@deepseek-ai/dsh-mcp-client'
+import type { McpConnectionsService, McpOAuthAuthorizationState } from '@deepseek-ai/dsh-mcp-client'
 import type { McpProbeResult } from '@deepseek-ai/dsh-mcp-client/types'
+import { McpAuthorizationCoordinator } from './authorization.ts'
 import type { McpFleetEntry } from './index.ts'
-import type { McpManagementStatusRow } from './types.ts'
+import type { McpAuthorizationStart, McpManagementStatusRow } from './types.ts'
 
 /** Host faces the management service reads and drives. */
 export interface McpManagementDeps {
@@ -43,9 +45,16 @@ export interface McpManagementDeps {
 export class McpManagementService extends TypertRemoteService {
   /** Per-connection change listeners retained for resubscription and disposal. */
   private readonly handleListeners = new Map<string, () => void>()
+  /** The explicit OAuth authorization attempts of the fleet. */
+  private readonly authorization: McpAuthorizationCoordinator
 
   constructor(ctx: Context, private readonly deps: McpManagementDeps) {
     super(ctx, 'mcpManagement')
+    this.authorization = new McpAuthorizationCoordinator(ctx, {
+      registry: deps.registry,
+      entries: deps.entries,
+      changed: () => { this.emitFleetChanged() },
+    })
     // Registry events cover membership and owner replacement (settings
     // remounts, restarts, registrations); each live handle's own change feed
     // covers state transitions inside one connection. Both funnel into the
@@ -53,11 +62,13 @@ export class McpManagementService extends TypertRemoteService {
     ctx.effect(() => {
       const unsubscribeRegistry = this.deps.registry.subscribe((serverId) => {
         this.subscribeHandle(serverId)
+        this.authorization.retire(serverId)
         this.emitFleetChanged()
       })
       for (const { entry } of this.deps.entries()) this.subscribeHandle(entry.id)
       return () => {
         unsubscribeRegistry()
+        this.authorization.dispose()
         for (const dispose of this.handleListeners.values()) dispose()
         this.handleListeners.clear()
       }
@@ -130,6 +141,7 @@ export class McpManagementService extends TypertRemoteService {
         continue
       }
       const snapshot = handle.status()
+      const attempt = this.authorization.attemptOf(entry.id)
       const row: McpManagementStatusRow = {
         id: entry.id,
         serverName: entry.serverName,
@@ -140,11 +152,22 @@ export class McpManagementService extends TypertRemoteService {
         tools: handle.toolDescriptors().map(descriptor => ({ name: descriptor.rawName, description: descriptor.description })),
         ...snapshot.connectedAtMs === undefined ? {} : { connectedAtMs: snapshot.connectedAtMs },
         ...snapshot.lastErrorKind === undefined ? {} : { lastErrorKind: snapshot.lastErrorKind },
+        ...this.wireAuthorization(snapshot.authorization),
+        ...attempt === undefined ? {} : { attempt },
         ...registered ? { source: 'registered' as const } : {},
       }
       rows.push(row)
     }
     return rows
+  }
+
+  /** The authorization field of one row; it stays absent for a server without OAuth. */
+  private wireAuthorization(state: McpOAuthAuthorizationState | undefined): Pick<McpManagementStatusRow, 'authorization'> {
+    if (state === undefined) return {}
+    if (state.state === 'authorized') {
+      return { authorization: { state: 'authorized', ...state.expiresAtMs === undefined ? {} : { expiresAtMs: state.expiresAtMs } } }
+    }
+    return { authorization: { state: 'waiting-authorization', reason: state.reason } }
   }
 
   /**
@@ -170,5 +193,40 @@ export class McpManagementService extends TypertRemoteService {
   @Remote({ exportName: 'probe', requiredCapability: 'harniverse.administer' })
   async probe(serverId: string): Promise<McpProbeResult> {
     return this.deps.probeEntry(serverId)
+  }
+
+  /**
+   * Start the explicit OAuth authorization of one enabled OAuth-configured
+   * server, or join the attempt already pending for it. Nothing happens in a
+   * browser until the caller opens the returned authorization page.
+   * @param serverId - Stable settings identity of the server to authorize.
+   * @param redirectOrigin - Origin the caller's browser is served from; omission uses the web listener's own loopback origin.
+   * @returns The attempt and the authorization page the user opens.
+   * @throws when the server is unknown, lacks OAuth, lacks a live connection, or the redirect origin is not a serving authority.
+   */
+  @Remote({ exportName: 'startAuthorization', requiredCapability: 'harniverse.administer' })
+  async startAuthorization(serverId: string, redirectOrigin?: string): Promise<McpAuthorizationStart> {
+    return this.authorization.start(serverId, redirectOrigin)
+  }
+
+  /**
+   * Cancel the pending authorization attempt of one server; an unknown or
+   * already settled attempt is ignored.
+   * @param serverId - Stable settings identity of the server.
+   */
+  @Remote({ exportName: 'cancelAuthorization', requiredCapability: 'harniverse.administer' })
+  async cancelAuthorization(serverId: string): Promise<void> {
+    await this.authorization.cancel(serverId)
+  }
+
+  /**
+   * Delete the stored OAuth grant of one server. Its connection waits for a
+   * new authorization afterwards.
+   * @param serverId - Stable settings identity of the server.
+   * @throws when the server is unknown, lacks OAuth, or lacks a live connection.
+   */
+  @Remote({ exportName: 'signOut', requiredCapability: 'harniverse.administer' })
+  async signOut(serverId: string): Promise<void> {
+    await this.authorization.signOut(serverId)
   }
 }

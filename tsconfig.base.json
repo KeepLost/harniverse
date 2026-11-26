@@ -324,6 +324,8 @@
       "@deepseek-ai/dsh-client-modules": ["./packages/client/modules/src"],
       "@deepseek-ai/dsh-client-runtime": ["./packages/client/runtime/src"],
       "@deepseek-ai/dsh-client-runtime/client": ["./packages/client/runtime/src/client"],
+      "@deepseek-ai/dsh-client-session-reading": ["./packages/client/session-reading/src/index.ts"],
+      "@deepseek-ai/dsh-client-session-reading/types": ["./packages/client/session-reading/src/types.ts"],
       "@deepseek-ai/dsh-client-store": ["./packages/client/store/src"],
       "@deepseek-ai/dsh-cordis-client-runner": ["./packages/extensions/cordis-client-runner/src"],
       "@deepseek-ai/dsh-cordis-client-runner/client": ["./packages/extensions/cordis-client-runner/src/client"],

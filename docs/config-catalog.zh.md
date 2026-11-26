@@ -2037,8 +2037,18 @@ export interface StreamableHttpConfig {
   reservationKey?: string | undefined
   /** MCP endpoint URL. */
   url: string
-  /** Additional headers attached to MCP requests. */
+  /**
+   * Additional headers attached to MCP requests. An `Authorization` header
+   * cannot be combined with `oauth`.
+   */
   headers: Record<string, string>
+  /**
+   * OAuth 2.1 authorization for this endpoint: `true` selects every default,
+   * an object overrides the client id, scope, and budgets. OAuth owns the
+   * `Authorization` header; a connection without a stored grant waits for an
+   * explicit authorization instead of connecting.
+   */
+  oauth?: OAuthInput
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -2060,9 +2070,23 @@ export interface ReconnectConfig {
   /** Consecutive failed attempts per outage before giving up for good (default 10). */
   maxAttempts?: number
 }
+
+/** Raw `oauth` config field: `true` selects every default. */
+export type OAuthInput =
+  | true
+  | {
+    /** Pre-registered public client id; omission lets explicit authorization register a client dynamically. */
+    clientId?: string
+    /** Requested scope; omission uses the authorization server's challenge. */
+    scope?: string
+    /** Deadline of one authorization-server request in milliseconds (default 10000). */
+    requestTimeoutMs?: number
+    /** Deadline of one explicit authorization from its start through the token exchange in milliseconds (default 600000). */
+    authorizationTimeoutMs?: number
+  }
 ```
 
-Source: [`packages/mcp/mcp-client/src/config.ts:46`](../packages/mcp/mcp-client/src/config.ts)
+Source: [`packages/mcp/mcp-client/src/config.ts:50`](../packages/mcp/mcp-client/src/config.ts)
 
 <a id="deepseek-aidsh-mcp-user-config"></a>
 
@@ -2104,6 +2128,8 @@ export interface UserMcpServerConfig {
   url?: string
   /** Streamable HTTP headers; values are secret settings fields. */
   headers: Record<string, string>
+  /** OAuth 2.1 authorization of a Streamable HTTP entry; omitted entries send no OAuth token. */
+  oauth?: OAuthInput
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Attributed instruction budget; omission uses the client's 32 KiB default. */
@@ -2115,9 +2141,9 @@ export interface UserMcpServerConfig {
 }
 ```
 
-Depends on: [`ReconnectConfig`](../packages/mcp/mcp-client/src/index.ts)
+Depends on: [`OAuthInput`](../packages/mcp/mcp-client/src/index.ts) · [`ReconnectConfig`](../packages/mcp/mcp-client/src/index.ts)
 
-Source: [`packages/mcp/mcp-user-config/src/index.ts:156`](../packages/mcp/mcp-user-config/src/index.ts)
+Source: [`packages/mcp/mcp-user-config/src/index.ts:167`](../packages/mcp/mcp-user-config/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 
@@ -4895,6 +4921,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-locale` ([`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts))
 - `@deepseek-ai/dsh-client-modules` — requires `webServer` · `loader` · `connection` ([`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts))
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
+- `@deepseek-ai/dsh-client-session-reading` — requires `sessions` ([`packages/client/session-reading/src/index.ts`](../packages/client/session-reading/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-agent-preset` ([`packages/client/ui-agent-preset/src/index.ts`](../packages/client/ui-agent-preset/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-browser` ([`packages/client/ui-browser/src/index.ts`](../packages/client/ui-browser/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-commands` ([`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts))

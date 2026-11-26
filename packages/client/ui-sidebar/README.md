@@ -28,6 +28,5 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **Session state-dot rendering is owned by [ui-workspace](../ui-workspace/README.md)** — no done/error notification sources are available.
+- **Session state-dot rendering is owned by [ui-workspace](../ui-workspace/README.md)** — the rows read their unread marker from the `useSessionReading` root hook of [session-reading](../session-reading/README.md); the shell renders no status of its own.
 - **Workspace browser behavior is composition-owned** — grouping, ordering, search, and row state belong to [ui-workspace](../ui-workspace/README.md), not this shell.
-- **"New task completed" unread marking is local viewing state** — completion-time > last-seen never reaches the host.

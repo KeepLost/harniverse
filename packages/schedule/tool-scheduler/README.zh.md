@@ -10,7 +10,7 @@
 |---|---|
 | `schedule_create` | 恰好一个时间参数（`run_at` 或 `after_minutes`），可选 `every_minutes`（最小 5）、`target`（`current`/`job`）与 `context`（`continue`/`fresh`）。经 `ctx.scheduler.create` 创建并归属到调用方 agent。 |
 | `schedule_list` | 调用会话拥有的调度，按到期时间升序。 |
-| `schedule_update` | 就地改写 prompt 和/或暂停、恢复调用会话拥有的一个调度；至少需要一个字段。 |
+| `schedule_update` | 就地改写 prompt 和/或暂停、恢复调用会话拥有的一个调度；至少需要一个字段。暂停时不再报告下次运行；恢复时报告第一个未来运行。 |
 | `schedule_delete` | 取消调用会话拥有的一个调度。 |
 
 ## 组合

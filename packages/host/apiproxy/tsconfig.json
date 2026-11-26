@@ -21,6 +21,9 @@
       "path": "../../api/remotes/tsconfig.host.json"
     },
     {
+      "path": "../../client/session-reading/tsconfig.host.json"
+    },
+    {
       "path": "../../api/terminal-controller"
     },
     {

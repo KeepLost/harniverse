@@ -1,7 +1,7 @@
 /**
  * One MCP server card: identity, live state badge, preset references, the
- * enable toggle, and the expandable tool inventory from the management
- * Remote.
+ * enable toggle, the expandable tool inventory from the management Remote,
+ * and the OAuth line of a server that authenticates through a grant.
  */
 
 import { useState } from 'react'
@@ -9,6 +9,7 @@ import {
   Button, IconEditOutline16, IconPlayOutline16, IconRefreshOutline16, IconTrashOutline16, Pill,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { McpProbeView, McpServerRow } from './section-store.ts'
+import type { McpManagementAttempt, McpManagementAuthorization } from '@deepseek-ai/dsh-mcp-user-config/types'
 import type { McpLocaleKey } from './locales.ts'
 import css from './McpSection.module.css'
 
@@ -24,6 +25,12 @@ export interface ServerRowActions {
   restart: (id: string) => Promise<string | undefined>
   /** Probe this row's configuration without touching the live fleet. */
   probe: (id: string) => Promise<void>
+  /** Begin or join the OAuth authorization of this row's server. */
+  authorize: (id: string) => Promise<string | undefined>
+  /** Cancel this row's pending OAuth authorization. */
+  cancelAuthorization: (id: string) => Promise<void>
+  /** Delete this row's stored OAuth grant. */
+  signOut: (id: string) => Promise<void>
 }
 
 /** Probe view for one card; undefined carries no probe surface. */
@@ -47,14 +54,84 @@ export interface ServerRowProps {
   t: ServerRowTranslate
   /** Row actions. */
   actions: ServerRowActions
+  /** The authorization page while this row's attempt waits for the browser. */
+  authorizationUrl?: string | undefined
+  /** Why the Host refused this row's latest authorization request. */
+  authorizationError?: string | undefined
 }
 
 /** Classify a live state into the card's color band. */
 function stateClass(state: string): string | undefined {
   if (state === 'connected') return css.stateConnected
-  if (state === 'reconnecting' || state === 'connecting' || state === 'exhausted') return css.stateRetrying
+  if (state === 'reconnecting' || state === 'connecting' || state === 'exhausted' || state === 'waiting-authorization') return css.stateRetrying
   if (state === 'stopped' || state === 'disposed') return css.stateDown
   return css.stateIdle
+}
+
+/** Whether an authorization attempt can still complete. */
+function isPendingAttempt(attempt: McpManagementAttempt | undefined): attempt is McpManagementAttempt & { phase: 'starting' | 'waiting-browser' | 'exchanging' | 'committing' } {
+  return attempt?.phase === 'starting' || attempt?.phase === 'waiting-browser' || attempt?.phase === 'exchanging' || attempt?.phase === 'committing'
+}
+
+/** The settled outcome an attempt reports; `authorized` needs no line beside the grant state. */
+function attemptOutcome(attempt: McpManagementAttempt | undefined, t: ServerRowTranslate): string | undefined {
+  if (attempt?.phase === 'failed') return t('oauth.attempt.failed')
+  if (attempt?.phase === 'cancelled') return t('oauth.attempt.cancelled')
+  return undefined
+}
+
+/** The OAuth line's props: the card's row and the shares its actions need. */
+interface OAuthLineProps {
+  row: McpServerRow
+  writable: boolean
+  url: string | undefined
+  error: string | undefined
+  t: ServerRowTranslate
+  actions: ServerRowActions
+}
+
+/**
+ * The OAuth line of a card: the grant state, the attempt phase, and the
+ * actions that move them. Absent for a server that carries no OAuth state.
+ */
+function OAuthLine(props: OAuthLineProps) {
+  const { row, writable, url, error, t, actions } = props
+  const authorization: McpManagementAuthorization | undefined = row.status?.authorization
+  if (authorization === undefined) return null
+  const attempt = row.status?.attempt
+  const pending = isPendingAttempt(attempt)
+  const outcome = attemptOutcome(attempt, t)
+  return (
+    <div className={css.cardMeta}>
+      {authorization.state === 'authorized'
+        ? <span className={css.stateConnected}>{t('oauth.authorized')}</span>
+        : <span className={css.stateRetrying}>{t('oauth.waiting', { reason: t(`oauth.reason.${authorization.reason}`) })}</span>}
+      {pending && <span>{t(`oauth.attempt.${attempt.phase}`)}</span>}
+      {outcome !== undefined && <span className={attempt?.phase === 'failed' ? css.stateDown : undefined}>{outcome}</span>}
+      {error !== undefined && <span className={css.formError}>{t('oauth.failed', { message: error })}</span>}
+      <span className={css.cardSpacer} />
+      <div className={css.cardActions}>
+        {/* The authorization page is a plain link: opening it is the user's own navigation, never a scripted popup. */}
+        {url !== undefined && (
+          <a className={css.oauthLink} href={url} target="_blank" rel="noopener noreferrer">{t('oauth.open')}</a>
+        )}
+        {pending
+          ? (
+            <Button variant="ghost" size="sm" disabled={!writable} onClick={() => { void actions.cancelAuthorization(row.id) }}>
+              {t('oauth.cancel')}
+            </Button>
+          )
+          : authorization.state === 'waiting-authorization' && (
+            <Button variant="outline" size="sm" disabled={!writable} onClick={() => { void actions.authorize(row.id) }}>
+              {t('oauth.authorize')}
+            </Button>
+          )}
+        <Button variant="ghost" size="sm" disabled={!writable || pending} onClick={() => { void actions.signOut(row.id) }}>
+          {t('oauth.signOut')}
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 /** One server card. */
@@ -155,6 +232,14 @@ export function ServerRow(props: ServerRowProps) {
               : <span>{t('row.probeFail', probe.summary)}</span>}
         </div>
       )}
+      <OAuthLine
+        row={row}
+        writable={writable}
+        url={props.authorizationUrl}
+        error={props.authorizationError}
+        t={t}
+        actions={actions}
+      />
       <div className={css.presets}>{presetText}</div>
       {open && tools.length > 0 && (
         <div className={css.tools}>

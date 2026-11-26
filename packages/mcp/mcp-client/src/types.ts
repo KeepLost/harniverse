@@ -6,6 +6,28 @@
  * @module
  */
 
+
+/** Read and write face of the credentials seam (structural: this package does not depend on the credentials package). */
+export interface McpOAuthCredentialStore {
+  /**
+   * Read one reference's current value.
+   * @param ref - Reference to resolve.
+   * @returns The stored value, or `undefined` while nothing is stored.
+   */
+  resolve(ref: string): Promise<{ readonly value: string } | undefined>
+  /**
+   * Durably store one value under a reference.
+   * @param ref - Reference to store under.
+   * @param value - Non-empty value.
+   */
+  set(ref: string, value: string): Promise<void>
+  /**
+   * Remove one reference; removing an absent reference is a no-op.
+   * @param ref - Reference to remove.
+   */
+  unset(ref: string): Promise<void>
+}
+
 /** Options for one probeServer call. */
 export interface McpProbeOptions {
   /** Budget for the whole probe (connect + listing) in milliseconds; default 10000. */
@@ -19,6 +41,13 @@ export interface McpProbeOptions {
    * bounded closure.
    */
   readonly signal?: AbortSignal
+  /**
+   * Credentials seam an OAuth-configured entry's probe reads its stored grant
+   * through. The probe attaches that grant when one is stored and never
+   * starts an authorization; without a store the probe reports the missing
+   * grant as a connect failure.
+   */
+  readonly oauth?: McpOAuthCredentialStore
 }
 
 /** Stage a probe failure is classified under. */

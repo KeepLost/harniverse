@@ -1075,7 +1075,7 @@ describe('pending-interaction list status', () => {
   })
 })
 
-describe('completed reminder', () => {
+describe('selection counter', () => {
   const status = (rpcId: string, sessionId: SessionId, running: boolean) => ({
     rpcId: rpcId as never,
     payload: { type: 'host/session-status' as const, sessionId, running },
@@ -1086,20 +1086,6 @@ describe('completed reminder', () => {
   })
   const entry = (manager: SessionManager, sessionId: SessionId) =>
     manager.getListSnapshot().items.find(item => item.sessionId === sessionId)
-
-  it('arms on a running→idle flip of a non-selected session and clears on select', () => {
-    const manager = new SessionManager(new FakeApiClient(), fakeRemote())
-    manager.handleHostEnvelope(added('h1', S1))
-    manager.handleHostEnvelope(added('h2', S2))
-    manager.select(S1)
-    expect(entry(manager, S2)?.completed).toBe(false)
-    manager.handleHostEnvelope(status('s1', S2, true))
-    manager.handleHostEnvelope(status('s2', S2, false))
-    expect(entry(manager, S2)?.completed).toBe(true)
-    // Opening the session consumes the reminder.
-    manager.select(S2)
-    expect(entry(manager, S2)?.completed).toBe(false)
-  })
 
   it('advances the selection counter on every selection, including re-selection', () => {
     const manager = new SessionManager(new FakeApiClient(), fakeRemote())
@@ -1117,75 +1103,7 @@ describe('completed reminder', () => {
     expect(manager.getListSnapshot().selectionSeq).toBe(start + 4)
   })
 
-  it('never arms for the session being watched and re-arms after a switch-away re-run', () => {
-    const manager = new SessionManager(new FakeApiClient(), fakeRemote())
-    manager.handleHostEnvelope(added('h1', S1))
-    manager.handleHostEnvelope(added('h2', S2))
-    manager.select(S2)
-    manager.handleHostEnvelope(status('s1', S2, true))
-    manager.handleHostEnvelope(status('s2', S2, false))
-    expect(entry(manager, S2)?.completed).toBe(false) // watched to completion: no reminder
-    // Switch away; a fresh run completing again arms the reminder.
-    manager.select(S1)
-    manager.handleHostEnvelope(status('s3', S2, true))
-    manager.handleHostEnvelope(status('s4', S2, false))
-    expect(entry(manager, S2)?.completed).toBe(true)
-  })
-
-  it('a re-run disarms the reminder while running and re-arms on its completion', () => {
-    const manager = new SessionManager(new FakeApiClient(), fakeRemote())
-    manager.handleHostEnvelope(added('h1', S1))
-    manager.handleHostEnvelope(added('h2', S2))
-    manager.select(S1)
-    manager.handleHostEnvelope(status('s1', S2, true))
-    manager.handleHostEnvelope(status('s2', S2, false))
-    expect(entry(manager, S2)?.completed).toBe(true)
-    // The user starts a new run without opening the session: running wins.
-    manager.handleHostEnvelope(status('s3', S2, true))
-    expect(entry(manager, S2)?.completed).toBe(false)
-    manager.handleHostEnvelope(status('s4', S2, false))
-    expect(entry(manager, S2)?.completed).toBe(true)
-  })
-
-  it('session-removed drops the reminder and a re-add starts clean', () => {
-    const manager = new SessionManager(new FakeApiClient(), fakeRemote())
-    manager.handleHostEnvelope(added('h1', S1))
-    manager.handleHostEnvelope(added('h2', S2))
-    manager.select(S1)
-    manager.handleHostEnvelope(status('s1', S2, true))
-    manager.handleHostEnvelope(status('s2', S2, false))
-    expect(entry(manager, S2)?.completed).toBe(true)
-    manager.handleHostEnvelope({ rpcId: 'rm' as never, payload: { type: 'host/session-removed', sessionId: S2 } })
-    expect(manager.getListSnapshot().items.find(item => item.sessionId === S2)).toBeUndefined()
-    manager.handleHostEnvelope(added('h3', S2))
-    expect(entry(manager, S2)?.completed).toBe(false)
-  })
-
-  it('a list refresh carrying the running→idle transition arms the reminder', async () => {
-    const api = new FakeApiClient()
-    api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200, running: true })] as never[] }))
-    const manager = new SessionManager(api, fakeRemote())
-    await manager.refreshList()
-    manager.select(S1)
-    expect(entry(manager, S2)?.completed).toBe(false)
-    api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200, running: false })] as never[] }))
-    await manager.refreshList()
-    expect(entry(manager, S2)?.completed).toBe(true)
-  })
-
-  it('never arms for sessions already idle at first observation', async () => {
-    const api = new FakeApiClient()
-    api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200 })] as never[] }))
-    const manager = new SessionManager(api, fakeRemote())
-    await manager.refreshList()
-    manager.select(S1)
-    expect(entry(manager, S2)?.completed).toBe(false)
-    api.onList = () => Promise.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 201 })] as never[] }))
-    await manager.refreshList()
-    expect(entry(manager, S2)?.completed).toBe(false)
-  })
-
-  it('arms a completion that happened during an in-flight first pull (baseline running, replayed idle)', async () => {
+  it('folds a status flip that landed during an in-flight first pull over the pull-time baseline', async () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onList']>>>()
     api.onList = () => gate.promise
@@ -1196,23 +1114,20 @@ describe('completed reminder', () => {
     manager.handleHostEnvelope(status('s-mid', S2, false))
     gate.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200, running: true })] as never[] }))
     await refresh
-    expect(entry(manager, S2)?.completed).toBe(true)
+    expect(entry(manager, S2)?.running).toBe(false)
   })
 
-  it('arms when a session ran and completed entirely between in-flight mutations (baseline idle)', async () => {
+  it('folds status mutations that ran entirely between in-flight mutations', async () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onList']>>>()
     api.onList = () => gate.promise
     const manager = new SessionManager(api, fakeRemote())
     const refresh = manager.refreshList()
-    // The unknown session starts and finishes while the first pull is in
-    // flight; the pull-time baseline recorded it idle, so the running→idle
-    // edge lives entirely inside the replayed mutations.
     manager.handleHostEnvelope(status('s-start', S2, true))
     manager.handleHostEnvelope(status('s-finish', S2, false))
     gate.resolve(ok({ items: [summary(S1), summary(S2, { updatedAt: 200 })] as never[] }))
     await refresh
-    expect(entry(manager, S2)?.completed).toBe(true)
+    expect(entry(manager, S2)?.running).toBe(false)
   })
 })
 

@@ -147,10 +147,10 @@ describe('GovernorQuotaTab', () => {
       'session-alpha': summary('session-alpha', { running: true, pendingInteraction: { kind: 'ask' } }),
     })
     await waitFor(() => { expect(screen.getByText('标题-session-alpha')).toBeDefined() })
-    // The warning dot branch renders without error; the done branch covers completed rows.
+    // The warning dot branch renders without error; an idle limited session carries no dot.
     cleanup()
     mount({ ...OVERVIEW, sessions: [OVERVIEW.sessions[0]!] }, {
-      'session-alpha': summary('session-alpha', { completed: true }),
+      'session-alpha': summary('session-alpha'),
     })
     await waitFor(() => { expect(screen.getByText('标题-session-alpha')).toBeDefined() })
   })

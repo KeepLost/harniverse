@@ -16,7 +16,7 @@ Client 组合挂载每个被已发布 Client 插件以 `remote.<namespace>` 注�
 
 该名单包含 `settings/exposure-changed`。它由 API Proxy 在 Host 侧权威发出，表示 namespace 注册、可配置提供方或 capability 拓扑可能改变了脱敏后的设置描述。客户端会重新读取受授权的 Settings endpoint，而不会从事件载荷自行推导暴露范围。名单还独立转发 `agent-presets/change`，让名单消费方直接重新读取 `agentPreset.list`；除非 Profile 拓扑确实改变 descriptor，否则不会把它当作 Settings exposure。
 
-监听器签名不在此处重写。名单内每条事件的 cordis `Events` 声明都住在其 owner 包 client-safe 的 `./types` 出口（`dsh-agent-presets`、`dsh-commands`、`dsh-credentials`、`dsh-llm`、`dsh-settings`），本包两个 face 都把那些声明纳入编译面，因此「原样转发」是构造性成立的，不需要另立证明。Host face 还额外把名单断言给 `TypertForwardableEvent`：未声明的事件名、绑定 AgentScope 的事件、以及形状不是单向的事件都会在此被拒绝。
+监听器签名不在此处重写。名单内每条事件的 cordis `Events` 声明都住在其 owner 包 client-safe 的 `./types` 出口（`dsh-agent-presets`、`dsh-commands`、`dsh-credentials`、`dsh-llm`、`dsh-settings`、`dsh-client-session-reading`），本包两个 face 都把那些声明纳入编译面，因此「原样转发」是构造性成立的，不需要另立证明。Host face 还额外把名单断言给 `TypertForwardableEvent`：未声明的事件名、绑定 AgentScope 的事件、以及形状不是单向的事件都会在此被拒绝。
 
 ## 构建边界
 
@@ -42,3 +42,4 @@ Client 组合挂载每个被已发布 Client 插件以 `remote.<namespace>` 注�
 - 能力集合由构建时显式导入的值固定确定；Client 不会在运行时发现 Host 中已启用的服务或 Remote 定义。
 - 若要增加能力，必须显式导入相应的 `/remote` 值并在此组合中挂载。
 - 在剩余 BFF 配置迁移到 `api-remotes` 之前，标准 Web Host 仍从旧 API Proxy 提供恢复默认值与 Agent scope 设置。
+- **session-reading 贡献只是 devDependency** — `@deepseek-ai/dsh-client-session-reading` 为自身的 `ctx.remote` 类型消费本组装的 Client face，因此本包若以 peer 边指回它，就会在包依赖图中闭合成环；生成的 `/remote` 贡献在构建时内联进 `lib/client.js`，不需要任何运行时依赖边。

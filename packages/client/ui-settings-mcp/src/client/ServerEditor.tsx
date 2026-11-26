@@ -1,14 +1,14 @@
 /**
- * The server editor: one modal form covering both transports and the
- * behavior fields the settings schema owns. Secret values (env/headers) ride
- * write-only: configured keys render as placeholders and lines left empty
- * keep the stored value.
+ * The server editor: one modal form covering both transports, the behavior
+ * fields the settings schema owns, and the OAuth section of a remote server.
+ * Secret values (env/headers) ride write-only: configured keys render as
+ * placeholders and lines left empty keep the stored value.
  */
 
 import { useState } from 'react'
 import { Button, Input, Modal, Select } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formatKeyValueLines, parseKeyValueLines } from './import.ts'
-import type { McpSettingsServers } from './section-store.ts'
+import type { McpOauthOptions, McpSettingsServers } from './section-store.ts'
 import type { McpLocaleKey } from './locales.ts'
 import css from './McpSection.module.css'
 
@@ -26,6 +26,11 @@ export interface ServerDraft {
   toolCallTimeoutMs: string
   maxInstructionBytes: string
   failOnStartupError: boolean
+  oauth: boolean
+  oauthClientId: string
+  oauthScope: string
+  oauthRequestTimeoutMs: string
+  oauthAuthorizationTimeoutMs: string
 }
 
 /** One settings row as the editor reads it (secrets redacted on the wire). */
@@ -46,6 +51,11 @@ export function draftOf(row: EditableServerRow | undefined, id: string): ServerD
     toolCallTimeoutMs: row?.toolCallTimeoutMs === undefined ? '' : String(row.toolCallTimeoutMs),
     maxInstructionBytes: row?.maxInstructionBytes === undefined ? '' : String(row.maxInstructionBytes),
     failOnStartupError: row?.failOnStartupError === true,
+    oauth: row?.oauth !== undefined,
+    oauthClientId: typeof row?.oauth === 'object' ? row.oauth.clientId ?? '' : '',
+    oauthScope: typeof row?.oauth === 'object' ? row.oauth.scope ?? '' : '',
+    oauthRequestTimeoutMs: typeof row?.oauth === 'object' ? String(row.oauth.requestTimeoutMs ?? '') : '',
+    oauthAuthorizationTimeoutMs: typeof row?.oauth === 'object' ? String(row.oauth.authorizationTimeoutMs ?? '') : '',
   }
 }
 
@@ -70,7 +80,18 @@ export function validateDraft(
   if (others.some(row => row.serverName === draft.serverName && row.id !== originalId)) return 'editor.duplicateServerName'
   if (draft.transport === 'stdio' && draft.command.trim() === '') return 'editor.commandRequired'
   if (draft.transport === 'streamable-http' && draft.url.trim() === '') return 'editor.urlRequired'
+  if (draft.oauth && Object.keys(parseKeyValueLines(draft.headers)).some(key => key.toLowerCase() === 'authorization')) {
+    return 'editor.oauthAuthorizationHeader'
+  }
+  if (draft.oauth && ![draft.oauthRequestTimeoutMs, draft.oauthAuthorizationTimeoutMs].every(isBlankOrPositiveInteger)) {
+    return 'editor.oauthTimeoutInvalid'
+  }
   return undefined
+}
+
+/** Whether a numeric draft field is left to its default or names a positive integer. */
+function isBlankOrPositiveInteger(value: string): boolean {
+  return value === '' || (/^\d+$/.test(value) && Number(value) >= 1)
 }
 
 /** Stored secret maps an edited row may carry; empty draft values keep these. */
@@ -130,7 +151,20 @@ export function rowOf(draft: ServerDraft, stored: StoredSecrets = {}): EditableS
     transport: 'streamable-http',
     url: draft.url.trim(),
     headers: resolveSecrets(draft.headers, stored.headers),
+    ...oauthOf(draft),
   }
+}
+
+/** The `oauth` field of a remote draft: absent while switched off, `true` without details. */
+function oauthOf(draft: ServerDraft): { oauth?: McpOauthOptions } {
+  if (!draft.oauth) return {}
+  const details = {
+    ...draft.oauthClientId === '' ? {} : { clientId: draft.oauthClientId },
+    ...draft.oauthScope === '' ? {} : { scope: draft.oauthScope },
+    ...draft.oauthRequestTimeoutMs === '' ? {} : { requestTimeoutMs: Number(draft.oauthRequestTimeoutMs) },
+    ...draft.oauthAuthorizationTimeoutMs === '' ? {} : { authorizationTimeoutMs: Number(draft.oauthAuthorizationTimeoutMs) },
+  }
+  return { oauth: Object.keys(details).length === 0 ? true : details }
 }
 
 /** The editor's props. */
@@ -240,6 +274,31 @@ export function ServerEditor(props: ServerEditorProps) {
               <textarea rows={3} value={draft.headers} onChange={(event) => { setDraft({ ...draft, headers: event.target.value }) }} />
               <span className={css.formHint}>{t('editor.envHint')}</span>
             </label>
+            <label className={css.checkRow}>
+              <input type="checkbox" checked={draft.oauth} onChange={(event) => { setDraft({ ...draft, oauth: event.target.checked }) }} />
+              <span className={css.formLabel}>{t('editor.oauth')}</span>
+            </label>
+            {draft.oauth && (
+              <>
+                <span className={css.formHint}>{t('editor.oauthHint')}</span>
+                <label className={css.formRow}>
+                  <span className={css.formLabel}>{t('editor.oauth.clientId')}</span>
+                  <Input value={draft.oauthClientId} onChange={(event) => { setDraft({ ...draft, oauthClientId: event.target.value }) }} />
+                </label>
+                <label className={css.formRow}>
+                  <span className={css.formLabel}>{t('editor.oauth.scope')}</span>
+                  <Input value={draft.oauthScope} onChange={(event) => { setDraft({ ...draft, oauthScope: event.target.value }) }} />
+                </label>
+                <label className={css.formRow}>
+                  <span className={css.formLabel}>{t('editor.oauth.requestTimeout')}</span>
+                  <Input value={draft.oauthRequestTimeoutMs} inputMode="numeric" onChange={(event) => { setDraft({ ...draft, oauthRequestTimeoutMs: event.target.value }) }} />
+                </label>
+                <label className={css.formRow}>
+                  <span className={css.formLabel}>{t('editor.oauth.authorizationTimeout')}</span>
+                  <Input value={draft.oauthAuthorizationTimeoutMs} inputMode="numeric" onChange={(event) => { setDraft({ ...draft, oauthAuthorizationTimeoutMs: event.target.value }) }} />
+                </label>
+              </>
+            )}
           </>
         )}
         <label className={css.formRow}>

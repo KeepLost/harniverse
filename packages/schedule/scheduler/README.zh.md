@@ -15,12 +15,12 @@
 | `create({prompt, rule, target, contextMode, createdBy})` | 校验并存储一条记录；首个到期时刻武装定时器。 |
 | `list()` / `listForSession(sessionId)` | 全部记录按下次到期排序；某会话拥有的子集。 |
 | `listRuns(scheduleId, ownerSessionId?)` | 按最新优先返回持久化投递尝试；可选 owner 限制读取范围。 |
-| `update(id, {prompt?, status?, rule?}, by?)` | 在会话所有权下编辑 prompt、生命周期或规则；规则补丁从当下重算下次到期并重新武装定时器；省略 `by` 为宿主权限。 |
+| `update(id, {prompt?, status?, rule?}, by?)` | 在会话所有权下编辑 prompt、生命周期或规则；规则补丁从当下重算下次到期并重新武装定时器；恢复时把下次到期移到当下之后的第一次出现，没有剩余出现的记录置为完成；省略 `by` 为宿主权限。 |
 | `remove(id, by?)` | 以相同所有权规则删除。 |
 
 目标沿用官方词表并加一个下游扩展：`current`（创建者会话）、`job`（惰性创建的专属会话）、`session`（由人工经管理视图显式绑定的任意命名会话——热或冷唤醒；所有权仍归创建者）。
 
-规则沿用官方词表：`after`（一次性延迟）、`at`（一次性时刻，逾期补跑一次）、`every`（锚定周期，最短五分钟，错过跳至最近槽位）。失败的一次性任务十分钟后重试并记录 `lastError`；失败的 `every` 在下一槽位继续。派发在提示词入队的时刻认领槽位：记录在派发等待空闲阶段期间被暂停、删除或重排，则不再投递；等待跨过更多 `every` 边界时，只投递最近错过的槽位。`fresh` 投递先经 `ctx.contextReset` 重置目标表面。每次派发追加一条 log-only 的 `schedule/dispatch` 溯源事件与一条 plugin source 为 `schedule` 的 `user/message`，随后 flush。
+规则沿用官方词表：`after`（一次性延迟）、`at`（一次性时刻，逾期补跑一次）、`every`（锚定周期，最短五分钟，错过跳至最近槽位）。失败的一次性任务十分钟后重试并记录 `lastError`；失败的 `every` 在下一槽位继续。派发在提示词入队的时刻认领槽位：记录在派发等待空闲阶段期间被暂停、删除或重排，则不再投递；等待跨过更多 `every` 边界时，只投递最近错过的槽位。恢复已暂停的记录会排到恢复时刻之后的第一次出现：暂停期间错过的出现不补跑，时刻已过的一次性任务直接置为完成、不再运行。`fresh` 投递先经 `ctx.contextReset` 重置目标表面。每次派发追加一条 log-only 的 `schedule/dispatch` 溯源事件与一条 plugin source 为 `schedule` 的 `user/message`，随后 flush。
 
 向某会话投递的活跃记录通过 `workspace/session-activity` 的 `schedule` 家族上报（记录 id 加截断的 prompt 标签），归档该会话因此会点名该计划；调度器不注册停止监听——计划保留。送达会话已归档的到期槽位按成功推进，并记录一条状态为 `skipped`、无错误的运行，取消归档后在下一个到期时刻恢复投递。
 

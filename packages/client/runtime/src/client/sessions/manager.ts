@@ -107,14 +107,6 @@ export class SessionManager {
    *  sessions never instantiated. Cleared per connection generation — the reopen replay re-adds
    *  still-pending requests — and on session-removed. */
   private readonly pendingInteractions = new Map<SessionId, Map<string, PendingInteractionStatus>>()
-  /**
-   * Sessions that finished running while not selected — the sidebar's green
-   * "done" reminder (manager-owned, survives connection generations; cleared
-   * on select and session-removed, re-armed by the next completion).
-   */
-  private readonly completedNotifications = new Set<SessionId>()
-  /** Last-observed running bits per session; the true→false edge here arms {@link completedNotifications}. */
-  private readonly prevRunning = new Map<SessionId, boolean>()
   /** Per-session projection value stores, retained independently of instance arrival (the
    *  title-snapshot precedent, generalized): push frames land here whether or not the Session
    *  is instantiated (list rows read the 'title' key), and an instantiated Session adopts the
@@ -192,8 +184,6 @@ export class SessionManager {
     )
     this.selected = sessionId
     this.selectionSeq += 1
-    // Looking at the session consumes its completion reminder (dot clears).
-    this.completedNotifications.delete(sessionId)
     void this.refreshSubagents(sessionId)
     this.notifier.notifyNow()
   }
@@ -212,7 +202,6 @@ export class SessionManager {
     this.sessions.get(address.childSessionId)?.configureSubagent(address, catalog?.parentAvailable ?? false)
     this.selected = address.childSessionId
     this.selectionSeq += 1
-    this.completedNotifications.delete(address.childSessionId)
     void this.refreshSubagents(address.childSessionId)
     this.notifier.notifyNow()
   }
@@ -479,25 +468,11 @@ export class SessionManager {
           const baseline = this.listPhase === 'pending'
             ? result.value.items
             : mergeOrderedBaseline(established, result.value.items, summary => summary.sessionId)
-          // Seed first observations from the pull-time baseline BEFORE replaying
-          // in-flight mutations, then reconcile the reminders after EVERY
-          // replayed mutation: an edge that happens entirely between mutations
-          // (baseline idle → running → idle) must still arm, which a single
-          // sync on the folded result would collapse away.
-          for (const s of baseline) {
-            if (!this.prevRunning.has(s.sessionId)) this.prevRunning.set(s.sessionId, s.running)
-          }
           let summaries = baseline
-          for (const mutation of mutations) {
-            summaries = applyMutation(summaries, mutation)
-            this.summaries = summaries
-            this.syncCompletedNotifications()
-          }
+          for (const mutation of mutations) summaries = applyMutation(summaries, mutation)
           this.summaries = summaries
           this.listState = 'idle'
           this.listPhase = 'ready'
-          // Covers the empty-mutations pull (a plain baseline carries no edge).
-          this.syncCompletedNotifications()
           // Push running/blank bits down to instantiated Sessions (the list is the authoritative summary source).
           for (const s of this.summaries) {
             const session = this.sessions.get(s.sessionId)
@@ -745,8 +720,6 @@ export class SessionManager {
   private recordMutation(mutation: SessionListMutation): void {
     this.listMutations?.push(mutation)
     this.summaries = applyMutation(this.summaries, mutation)
-    // Eager edge reconciliation — a snapshot-build-time pass would miss consecutive status frames.
-    this.syncCompletedNotifications()
     this.notifier.markDirty()
   }
 
@@ -1128,38 +1101,6 @@ export class SessionManager {
     })
   }
 
-  /**
-   * Reconcile completion reminders against the latest summaries, eagerly after
-   * every mutation and pull (a snapshot-build-time pass would collapse
-   * consecutive status frames into one observation). A running→idle edge of a
-   * non-selected session arms its reminder; running disarms it; removal drops
-   * it. First observation only records the running bit — sessions already
-   * idle at load get no reminder.
-   */
-  private syncCompletedNotifications(): void {
-    const seen = new Set<SessionId>()
-    for (const s of this.summaries) {
-      seen.add(s.sessionId)
-      const prev = this.prevRunning.get(s.sessionId)
-      if (prev === undefined) {
-        this.prevRunning.set(s.sessionId, s.running)
-        continue
-      }
-      if (prev && !s.running) {
-        if (s.sessionId !== this.selected) this.completedNotifications.add(s.sessionId)
-      } else if (s.running) {
-        this.completedNotifications.delete(s.sessionId)
-      }
-      this.prevRunning.set(s.sessionId, s.running)
-    }
-    for (const id of this.prevRunning.keys()) {
-      if (!seen.has(id)) this.prevRunning.delete(id)
-    }
-    for (const id of this.completedNotifications) {
-      if (!seen.has(id)) this.completedNotifications.delete(id)
-    }
-  }
-
   private buildListSnapshot(): SessionListSnapshot {
     const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
       // List rows read the generic 'title' projection key (host-computed unit
@@ -1181,7 +1122,7 @@ export class SessionManager {
       const status = statuses.find(candidate => candidate !== 'approval') ?? statuses[0]
       if (status !== undefined) pendingInteractions.set(sessionId, status)
     }
-    const fresh = flattenLineage(merged, pendingInteractions, this.completedNotifications)
+    const fresh = flattenLineage(merged, pendingInteractions)
     const items = fresh.map((entry) => {
       const prev = this.entryCache.get(entry.sessionId)
       if (
@@ -1191,7 +1132,6 @@ export class SessionManager {
         && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth
         && prev.pendingInteraction === entry.pendingInteraction
         && prev.projectionValues === entry.projectionValues
-        && prev.completed === entry.completed
       ) return prev
       this.entryCache.set(entry.sessionId, entry)
       return entry

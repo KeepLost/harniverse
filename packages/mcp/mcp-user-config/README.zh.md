@@ -61,6 +61,7 @@ shipped Standard、Code 与 Cordis Profile 会挂载 consumer，Minimal 不会�
 | `cwd` | stdio | 否 | 子进程工作目录；默认 `''` |
 | `url` | streamable-http | 是 | MCP endpoint URL |
 | `headers` | streamable-http | 否 | 请求 headers；默认 `{}`，并作为 secret 字段脱敏 |
+| `oauth` | streamable-http | 否 | OAuth 2.1 授权：`true`，或含 `clientId`、`scope`、`requestTimeoutMs`（默认 10000）与 `authorizationTimeoutMs`（默认 600000）的对象；与 `Authorization` 标头同时配置、用于 stdio，或 endpoint 既非 HTTPS 也非回环 HTTP 时被拒绝 |
 | `toolCallTimeoutMs` | 两者 | 否 | 每次工具调用超时；默认 `60000` |
 | `maxInstructionBytes` | 两者 | 否 | 包含服务器归属的 UTF-8 字节预算，须为正安全整数；默认 `32768` |
 | `failOnStartupError` | 两者 | 否 | 让该子插件向桥接报告启动失败；默认 `false` |
@@ -88,7 +89,21 @@ shipped Standard、Code 与 Cordis Profile 会挂载 consumer，Minimal 不会�
 | `restart(serverId)` | 重建一条已启用服务器的共享连接；校验（`unknown server`、`server "X" is disabled`）位于机群步骤，重启无法绕过设置 |
 | `probe(serverId)` | 对一条已配置或已注册条目做一次性测试——连接、读取服务器身份、列出工具名、关闭——不挂载 owner、不占用命名空间；禁用条目同样应答，设置面可在启用前先试连 |
 
-每次机群变更（连接状态迁移、owner 挂载/卸载、设置或注册形状变化）在提交后发出无载荷的 `mcpManagement/fleet-changed` cordis 事件；监听器失败被隔离。该事件原样转发给 web 客户端，设置页收到后立即重新联表，而不必等待轮询。
+每次机群变更（连接状态迁移、owner 挂载/卸载、设置或注册形状变化、授权尝试阶段变化）在提交后发出无载荷的 `mcpManagement/fleet-changed` cordis 事件；监听器失败被隔离。该事件原样转发给 web 客户端，设置页收到后立即重新联表，而不必等待轮询。
+
+## OAuth 授权
+
+条目带 `oauth` 的服务器由用户显式授权；机群中没有任何环节自行注册客户端、重定向或打开浏览器。Remote 为每台服务器驱动一次尝试：
+
+| 操作 | 结果 |
+|---|---|
+| `startAuthorization(serverId, redirectOrigin?)` | 发起尝试，或加入该服务器已在等待的尝试；以尝试及用户要打开的授权页 resolve。重定向 origin 默认取 web 监听器自身 origin 的回环形式；显式提供的 origin 必须是回环 HTTP(S) origin，或连接信任围栏所服务的 HTTPS origin |
+| `cancelAuthorization(serverId)` | 撤回等待中的尝试，并等待其回调路由与协议流程释放完毕；未知或已结算的尝试被忽略 |
+| `signOut(serverId)` | 经连接删除已存储的授权；连接随后等待新的授权 |
+
+一次尝试依次经过 `starting`、`waiting-browser`、`exchanging` 与 `committing`，最终结算为 `authorized`、`cancelled` 或 `failed`。每次授权服务器请求受条目的 `requestTimeoutMs` 约束，等待浏览器与令牌交换受 `authorizationTimeoutMs` 约束；发现、注册与本地凭据提交不在后一预算之内；失败的尝试只记录其安全的原因，绝不记录授权码、state 或 token。浏览器返回公开的精确路由 `/mcp/oauth/callback/<服务器 id 的 sha256 十六进制>`，该路由仅在尝试存续期间注册到 web 监听器。授权服务器的重定向是跨站导航，路由准入会拒绝它，因此回调是公开路由：它只接受重定向 URI 自身的 authority，要求一次性 `state`——常量时间比较并绑定到等待中的尝试——并以静态双语言页面应答，不回显任何请求值。PKCE 授权码交换与授权记录属于 [`dsh-mcp-client`](../mcp-client/README.md)。
+
+对于拥有活连接的 OAuth 服务器，`status()` 报告 `authorization`（`authorized`，或带原因的 `waiting-authorization`）与最近的 `attempt`（id、阶段与截止时间）。只有已启用的条目能被授权或退出登录；禁用的条目保留其已存储的授权，启用后即可使用。
 
 ## 插件注册
 
@@ -103,6 +118,9 @@ shipped Standard、Code 与 Cordis Profile 会挂载 consumer，Minimal 不会�
 | `ctx.mcpConnections` | owner 创建、registrar 附接的共享连接注册表 |
 | `ctx.capabilities` | 可选的私有世代捕获及服务器选择集成 |
 | `ctx.tools` | 每个 registrar 都需要它来注册模型工具 |
+| `ctx.webServer` | 可选：注册 OAuth 回调路由并提供默认重定向 origin（结构化读取） |
+| `ctx.connection` | 可选：以部署的受信主机与 origin 判定浏览器提供的重定向 origin（结构化读取） |
+| `ctx.credentials` | 可选：存储 OAuth 授权、供 OAuth 探测读取的凭据 seam（结构化读取） |
 
 ## 模型体验
 
@@ -128,3 +146,6 @@ shipped Standard、Code 与 Cordis Profile 会挂载 consumer，Minimal 不会�
 - Host/base 拥有 provider row，Standard、Code 与 Cordis 拥有 consumer row。自定义组合必须保留这个单 provider、scoped consumer 划分。
 - 固定世代乘搭活的共享连接：捕获后被重命名的服务器同样向旧 registrar 暴露新的公开 namespace，被移除的槽位会搁浅它们直到作用域释放。
 - 管理 Remote 报告状态；设置页在转发的 `mcpManagement/fleet-changed` 事件上立即重新联表（并保留 5 秒轮询兜底），而非订阅 wire 流——typert 协议没有 stream 模式 Remote。
+- **显式授权需要 web 监听器**：headless 组合会应答 `explicit MCP OAuth authorization requires the web listener`。默认重定向 origin 是监听器的回环形式：经局域网或以名字访问的部署，必须让该浏览器 origin 进入连接的 `trustedHosts`；拒绝 IP 字面量或回环重定向 URI 的授权服务器无法在此类部署中使用。
+- **禁用的条目无法被授权**：请先启用条目；其已存储的授权在禁用期间保留。
+- **针对已被替换连接的尝试会被取消**：浏览器仍打开时，重新挂载 owner 的设置变更或重启会把尝试结算为 `cancelled`。

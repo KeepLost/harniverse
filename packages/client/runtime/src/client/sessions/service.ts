@@ -763,7 +763,6 @@ export class SessionRuntime implements ISessions {
         id: entry.sessionId,
         displayTitle: displayTitleOf(entry.title, entry.cwd, entry.sessionId),
         running: entry.running,
-        ...(entry.completed ? { completed: true } : {}),
         blank: entry.blank,
         updatedAt: entry.updatedAt,
         ...(entry.pendingInteraction === undefined

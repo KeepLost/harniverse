@@ -61,6 +61,7 @@ The shipped Standard, Code, and Cordis profiles mount the consumer; Minimal does
 | `cwd` | stdio | no | Child working directory; default `''` |
 | `url` | streamable-http | yes | MCP endpoint URL |
 | `headers` | streamable-http | no | Request headers; default `{}` and redacted as secret fields |
+| `oauth` | streamable-http | no | OAuth 2.1 authorization: `true`, or an object with `clientId`, `scope`, `requestTimeoutMs` (default 10000), and `authorizationTimeoutMs` (default 600000); refused together with an `Authorization` header, on stdio, or with an endpoint that is neither HTTPS nor loopback HTTP |
 | `toolCallTimeoutMs` | both | no | Per-tool-call timeout; default `60000` |
 | `maxInstructionBytes` | both | no | Positive safe-integer UTF-8 budget including server attribution; default `32768` |
 | `failOnStartupError` | both | no | Make this child report startup failure to the bridge; default `false` |
@@ -88,7 +89,21 @@ The shipped Standard, Code, and Cordis profiles mount the consumer; Minimal does
 | `restart(serverId)` | Recreate one enabled server's shared connection; validation (`unknown server`, `server "X" is disabled`) lives in the fleet step, so a restart cannot bypass settings |
 | `probe(serverId)` | One-shot test of one configured or registered entry — connect, read the server identity, list tool names, close — without mounting an owner or reserving a namespace; disabled entries answer too, so a settings surface can trial before enabling |
 
-Every fleet change (connection state moves, owner mounts/unmounts, settings or registration reshapes) emits the payload-free `mcpManagement/fleet-changed` cordis event after it commits; listener failures are contained. The event is forwarded to web clients verbatim, and the settings page re-joins on it instead of waiting out its poll.
+Every fleet change (connection state moves, owner mounts/unmounts, settings or registration reshapes, authorization attempt phases) emits the payload-free `mcpManagement/fleet-changed` cordis event after it commits; listener failures are contained. The event is forwarded to web clients verbatim, and the settings page re-joins on it instead of waiting out its poll.
+
+## OAuth authorization
+
+A server whose entry carries `oauth` is authorized explicitly by the user; nothing in the fleet registers a client, redirects, or opens a browser on its own. The Remote drives one attempt per server:
+
+| Operation | Result |
+|---|---|
+| `startAuthorization(serverId, redirectOrigin?)` | Start the attempt, or join the one already pending for the server; resolves with the attempt and the authorization page the user opens. The redirect origin defaults to the loopback form of the web listener's own origin; a supplied one must be a loopback HTTP(S) origin, or an HTTPS origin the connection's trust fence serves |
+| `cancelAuthorization(serverId)` | Withdraw the pending attempt and wait until its callback route and protocol flow are released; an unknown or settled attempt is ignored |
+| `signOut(serverId)` | Delete the stored grant through the connection; the connection then waits for a new authorization |
+
+An attempt moves through `starting`, `waiting-browser`, `exchanging`, and `committing`, then settles as `authorized`, `cancelled`, or `failed`. Each authorization-server request is bounded by the entry's `requestTimeoutMs`, and the wait for the browser plus the token exchange by its `authorizationTimeoutMs`; discovery, registration, and the local credential commit sit outside that second budget; a failed attempt logs its safe reason, never a code, state, or token. The browser returns to the public exact route `/mcp/oauth/callback/<sha256 hex of the server id>`, registered on the web listener for the attempt's lifetime only. The authorization server's redirect is a cross-site navigation, which route admission would refuse, so the callback is a public route: it accepts only the redirect URI's own authority, requires a single-use `state` compared in constant time and bound to the pending attempt, and answers with a static bilingual page that echoes no request value. The PKCE code exchange and the grant record belong to [`dsh-mcp-client`](../mcp-client/README.md).
+
+`status()` reports `authorization` (`authorized`, or `waiting-authorization` with its reason) and the latest `attempt` (id, phase, and deadline) for OAuth servers with a live connection. Only enabled entries can be authorized or signed out; a disabled entry keeps its stored grant and uses it once enabled.
 
 ## Plugin registrations
 
@@ -103,6 +118,9 @@ Every fleet change (connection state moves, owner mounts/unmounts, settings or r
 | `ctx.mcpConnections` | Shared-connection registry the owners create into and the registrars attach through |
 | `ctx.capabilities` | Optional private generation capture and server selection integration |
 | `ctx.tools` | Required by each registrar for model-facing tool registration |
+| `ctx.webServer` | Optional: registers the OAuth callback route and supplies the default redirect origin (structural) |
+| `ctx.connection` | Optional: judges a browser-supplied redirect origin against the deployment's trusted hosts and origins (structural) |
+| `ctx.credentials` | Optional: the credentials seam OAuth grants are stored through and an OAuth probe reads (structural) |
 
 ## Model Experience
 
@@ -128,3 +146,6 @@ The prefix stays stable while the captured servers' discovered tools and instruc
 - Host/base owns the provider row; Standard, Code, and Cordis own consumer rows. Custom compositions must preserve that one-provider, scoped-consumer split.
 - A pinned generation rides the live shared connection: a server renamed after capture exposes the new public namespace to old registrars too, and a removed slot strands them until their scope is disposed.
 - The management Remote reports state; the settings page re-joins on the forwarded `mcpManagement/fleet-changed` event (and keeps a 5 s poll as fallback) rather than subscribing to a wire stream — the typert protocol has no stream-mode Remotes.
+- **Explicit authorization needs the web listener** — a headless composition answers `explicit MCP OAuth authorization requires the web listener`. The default redirect origin is the loopback form of the listener: a deployment reached over the LAN or by name must have that browser origin in the connection's `trustedHosts`, and an authorization server that refuses IP-literal or loopback redirect URIs cannot be used from such a deployment.
+- **Disabled entries cannot be authorized** — enable an entry first; its stored grant survives being disabled.
+- **An attempt against a replaced connection is cancelled** — a settings change or restart that remounts the owner while the browser is open settles the attempt as `cancelled`.

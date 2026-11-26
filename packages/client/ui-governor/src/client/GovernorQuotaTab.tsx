@@ -21,12 +21,11 @@ export type GovernorQuotaTabProps =
   & InjectFace<GovernorResourcesActions>
   & PropsLocale<typeof NS>
 
-/** Coarse status dot mirroring the sidebar row's slot semantics. */
-function dotState(summary: { running: boolean; pendingInteraction?: unknown; completed?: boolean } | undefined): 'warning' | 'ongoing' | 'done' | null {
+/** Coarse status dot over the live session summary: interaction first, then running. */
+function dotState(summary: { running: boolean; pendingInteraction?: unknown } | undefined): 'warning' | 'ongoing' | null {
   if (summary === undefined) return null
   if (summary.pendingInteraction !== undefined) return 'warning'
   if (summary.running) return 'ongoing'
-  if (summary.completed) return 'done'
   return null
 }
 
@@ -168,7 +167,7 @@ interface QuotaRowProps {
   readonly row: SessionResourceRow
   readonly busy: boolean
   readonly draft: string
-  readonly dot: 'warning' | 'ongoing' | 'done' | null
+  readonly dot: 'warning' | 'ongoing' | null
   readonly label: string
   readonly onDraft: (value: string) => void
   readonly onApply: () => void

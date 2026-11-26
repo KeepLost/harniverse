@@ -9,7 +9,7 @@
  * menu in between; the flow and its error dialog live in WorkspacePicker
  * (same package — direct composition, no slot between them).
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCloseFill14, IconPersonalizationOutline16,
@@ -18,7 +18,7 @@ import {
 import type {
   SessionId, SessionListState, SessionSearchResultItem, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspaceBrowserProps } from './contract/slots.ts'
+import type { SessionReadingFace, WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode, SessionOrderBy } from './tree.ts'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
@@ -250,13 +250,17 @@ type SessionTreeProps = Pick<
   pinnedSessionIds: readonly SessionNode['id'][]
   /** Session order behavior: fixed after edits, or additionally promoted by user activity. */
   orderBy: SessionOrderBy
+  /** Reading seam; absent while no session-reading plugin is composed. */
+  reading: SessionReadingFace | undefined
+  /** Report the session rows the list currently renders (empty once it unmounts). */
+  onRowsRendered: (ids: readonly SessionId[]) => void
 }
 
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
   useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
   onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, onSessionPinToggle, pinnedSessionIds,
-  insertWorkspaceBefore, insertSessionBefore, orderBy,
+  insertWorkspaceBefore, insertSessionBefore, orderBy, reading, onRowsRendered,
   groupExpansion, setGroupExpanded,
   sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
 }: SessionTreeProps) {
@@ -331,9 +335,21 @@ function SessionTree({
       ...(sessionOrderByAccount[UNGROUPED_KEY] === undefined
         ? {}
         : { ungroupedOrder: sessionOrderByAccount[UNGROUPED_KEY] }),
-    }),
-    [list, orderedWorkspaces, archivedSessionIds, pinnedSessionIds, expandedGroups, sessionOrderByAccount],
+    }, reading?.unread),
+    [list, orderedWorkspaces, archivedSessionIds, pinnedSessionIds, expandedGroups, sessionOrderByAccount, reading],
   )
+  // Exactly the rows the tree mounts: every row of an expanded-overflow group,
+  // otherwise only the leading slice a group shows by default.
+  const renderedSessionIds = useMemo(
+    () => groups.flatMap(group => (expandedSessionGroups.includes(group.key)
+      ? group.sessions
+      : group.sessions.slice(0, COLLAPSED_SESSION_LIMIT)).map(node => node.id)),
+    [groups, expandedSessionGroups],
+  )
+  useEffect(() => {
+    onRowsRendered(renderedSessionIds)
+    return () => { onRowsRendered([]) }
+  }, [onRowsRendered, renderedSessionIds])
   const now = Date.now()
   const commitSessionDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
     if (sessionDropCommitted.current) return
@@ -524,6 +540,7 @@ function SessionTree({
                     onFork={forkSession}
                     onArchive={onSessionArchive}
                     onPinToggle={onSessionPinToggle}
+                    {...(reading === undefined ? {} : { onReadingToggle: reading.toggle })}
                     drag={dragProps}
                     t={t}
                   />
@@ -552,7 +569,7 @@ function SessionTree({
 /** The flat "In one list" body: every session is one draggable top-level row. */
 function FlatList({
   useSessions, open, forkSession, onSessionRename, onSessionArchive, onSessionPinToggle,
-  archivedSessionIds, pinnedSessionIds,
+  archivedSessionIds, pinnedSessionIds, reading, onRowsRendered,
   orderBy, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t,
 }: Pick<
   SessionTreeProps,
@@ -564,6 +581,8 @@ function FlatList({
   | 'onSessionPinToggle'
   | 'archivedSessionIds'
   | 'pinnedSessionIds'
+  | 'reading'
+  | 'onRowsRendered'
   | 'orderBy'
   | 'sessionOrderByAccount'
   | 'sessionUpdatedAtByAccount'
@@ -573,8 +592,8 @@ function FlatList({
 >) {
   const list = useSessions(s => s)
   const baseRows = useMemo(
-    () => deriveFlat(list, archivedSessionIds, pinnedSessionIds),
-    [list, archivedSessionIds, pinnedSessionIds],
+    () => deriveFlat(list, archivedSessionIds, pinnedSessionIds, reading?.unread),
+    [list, archivedSessionIds, pinnedSessionIds, reading],
   )
   const sessionIds = useMemo(() => baseRows.map(row => row.id), [baseRows])
   const previousOrderBy = useRef(orderBy)
@@ -604,6 +623,10 @@ function FlatList({
         return row === undefined ? [] : [row]
       })
   }, [baseRows, sessionOrderByAccount, sessionIds])
+  useEffect(() => {
+    onRowsRendered(rows.map(row => row.id))
+    return () => { onRowsRendered([]) }
+  }, [onRowsRendered, rows])
   const [drag, setDrag] = useState<DragState | null>(null)
   const dropCommitted = useRef(false)
   useNativeDragAcceptance(drag !== null)
@@ -643,6 +666,7 @@ function FlatList({
               onFork={forkSession}
               onArchive={onSessionArchive}
               onPinToggle={onSessionPinToggle}
+              {...(reading === undefined ? {} : { onReadingToggle: reading.toggle })}
               flat
               drag={{
                 start: () => {
@@ -696,8 +720,9 @@ function SearchResults({
   query,
   remote,
   resultLimit,
+  reading,
   t,
-}: Pick<SessionTreeProps, 'useSessions' | 'open' | 't'> & {
+}: Pick<SessionTreeProps, 'useSessions' | 'open' | 't' | 'reading'> & {
   workspaces: readonly WorkspaceView[]
   archivedSessionIds: readonly SessionNode['id'][]
   query: string
@@ -709,8 +734,8 @@ function SearchResults({
     ? remote
     : { query, status: 'loading' as const, items: [], hasMore: false }
   const results = useMemo(
-    () => deriveSearchResults(list, workspaces, query, archivedSessionIds, currentRemote, resultLimit),
-    [list, workspaces, query, archivedSessionIds, currentRemote, resultLimit],
+    () => deriveSearchResults(list, workspaces, query, archivedSessionIds, currentRemote, resultLimit, reading?.unread),
+    [list, workspaces, query, archivedSessionIds, currentRemote, resultLimit, reading],
   )
   const pending = currentRemote.status === 'loading'
   const failed = currentRemote.status === 'error'
@@ -750,15 +775,38 @@ function SearchResults({
   )
 }
 
+/** The optional reading root hook and the ledger snapshot it publishes. */
+type ReadingHook = NonNullable<WorkspaceBrowserProps['useSessionReading']>
+type ReadingState = Parameters<Parameters<ReadingHook>[0]>[0]
+
 /**
  * Render the browsing region.
  * @param props - composed slot props (shell owner share + store + injected actions).
  * @returns the region element tree.
  */
-export function WorkspaceBrowser({
+export function WorkspaceBrowser(props: WorkspaceBrowserProps) {
+  return <WorkspaceBrowserBody {...props} />
+}
+
+/**
+ * Read the optional `useSessionReading` root hook and report its snapshot
+ * upward. The bridge is keyed on the hook's presence, so a session-reading
+ * plugin that loads or unloads under a mounted browser remounts this stateless
+ * bridge only; the browser body and its local state stay mounted.
+ * @param props - the hook (absent while no session-reading plugin is composed) and the snapshot sink.
+ * @returns nothing.
+ */
+function ReadingBridge({ hook, report }: { hook: ReadingHook | undefined; report: (state: ReadingState | undefined) => void }) {
+  const state = hook?.(snapshot => snapshot)
+  useEffect(() => { report(state) }, [report, state])
+  return null
+}
+
+function WorkspaceBrowserBody({
   wide,
   expandSidebar,
   useSessions,
+  useSessionReading,
   useWorkspaces,
   useStore,
   actions,
@@ -789,6 +837,21 @@ export function WorkspaceBrowser({
   const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
   const pinnedSessionIds = useWorkspaces(state => state.pinnedSessionIds)
   const sessionList = useSessions(state => state)
+  // The optional reading seam: the unread ledger for every row list, the row
+  // menu's manual mark, and the selected row's visibility report. All three
+  // stay absent while the session-reading plugin is not composed.
+  const [reading, setReading] = useState<ReadingState | undefined>(undefined)
+  const readingFace = useMemo<SessionReadingFace | undefined>(() => reading === undefined
+    ? undefined
+    : {
+      unread: reading.unread,
+      toggle: (sessionId, unread) => { reading.mark(sessionId, unread ? 'read' : 'unread') },
+    }, [reading])
+  const current = sessionList.current
+  const reportRows = reading?.report
+  const onRowsRendered = useCallback((ids: readonly SessionId[]) => {
+    if (current !== undefined) reportRows?.(current, ids.includes(current))
+  }, [current, reportRows])
   const archivedItems = useMemo(() => archivedSessionIds.flatMap((id) => {
     const item = sessionList.byId[id]
     return item === undefined ? [] : [item]
@@ -1056,6 +1119,11 @@ export function WorkspaceBrowser({
 
   return (
     <div className={clsx(css.root, !wide && css.rail)}>
+      <ReadingBridge
+        key={useSessionReading === undefined ? 'session-reading-absent' : 'session-reading-present'}
+        hook={useSessionReading}
+        report={setReading}
+      />
       {renderSlot('sidebar.workspaces.machine', { wide })}
       <div className={css.sectionHeader}>
         {wide && !archiveMode && !batchArchiveMode && (
@@ -1259,6 +1327,7 @@ export function WorkspaceBrowser({
                   query={normalizedQuery}
                   remote={remoteSearch}
                   resultLimit={searchResultLimit}
+                  reading={readingFace}
                   t={t}
                 />
               )
@@ -1275,6 +1344,8 @@ export function WorkspaceBrowser({
                     sessionUpdatedAtByAccount={sessionUpdatedAtByAccount}
                     syncSessionOrderAccount={actions.syncSessionOrderAccount}
                     setSessionOrder={actions.setSessionOrder}
+                    reading={readingFace}
+                    onRowsRendered={onRowsRendered}
                     t={t}
                   />
                 )
@@ -1287,6 +1358,8 @@ export function WorkspaceBrowser({
                     forkSession={forkSession}
                     workspaces={workspaces}
                     pinnedSessionIds={pinnedSessionIds}
+                    reading={readingFace}
+                    onRowsRendered={onRowsRendered}
                     groupExpansion={groupExpansion}
                     setGroupExpanded={actions.setGroupExpanded}
                     sessionOrderByAccount={sessionOrderByAccount}
