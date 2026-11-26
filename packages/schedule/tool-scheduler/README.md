@@ -10,7 +10,7 @@ Preset-selected model-facing scheduler tools: `schedule_create`, `schedule_list`
 |---|---|
 | `schedule_create` | Exactly one timing parameter (`run_at` or `after_minutes`), optional `every_minutes` (minimum 5), optional `target` (`current`/`job`) and `context` (`continue`/`fresh`). Creates through `ctx.scheduler.create` attributed to the calling agent. |
 | `schedule_list` | The schedules owned by the calling session, earliest first. |
-| `schedule_update` | Edits the prompt and/or pauses/resumes one schedule owned by the calling session; at least one field is required. |
+| `schedule_update` | Edits the prompt and/or pauses/resumes one schedule owned by the calling session; at least one field is required. A pause reports no next run; a resume reports the first future run. |
 | `schedule_delete` | Cancels one schedule owned by the calling session. |
 
 ## Composition

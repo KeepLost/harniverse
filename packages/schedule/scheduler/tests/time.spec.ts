@@ -6,6 +6,7 @@ import {
   initialDue,
   latestMissedDue,
   parseInstant,
+  resumedDue,
   subsequentDue,
   validateRule,
 } from '@deepseek-ai/dsh-scheduler/src/time.ts'
@@ -80,5 +81,14 @@ describe('due progression', () => {
     expect(latestMissedDue(every, CREATED, now)).toBe(CREATED + 900_000)
     expect(latestMissedDue(every, CREATED + 900_000, now)).toBe(CREATED + 900_000)
     expect(latestMissedDue({ kind: 'after', delayMs: 1 }, CREATED, now)).toBe(CREATED)
+  })
+
+  it('resumes at the first occurrence strictly after now', () => {
+    expect(resumedDue(every, CREATED, CREATED + 950_000)).toBe(CREATED + 1_200_000)
+    expect(resumedDue(every, CREATED, CREATED + 900_000)).toBe(CREATED + 1_200_000)
+    expect(resumedDue(every, CREATED, CREATED - 1)).toBe(CREATED)
+    expect(resumedDue({ kind: 'after', delayMs: 1 }, CREATED + 950_000, CREATED + 900_000)).toBe(CREATED + 950_000)
+    expect(resumedDue({ kind: 'at', at: anchor }, CREATED + 900_000, CREATED + 950_000)).toBeUndefined()
+    expect(resumedDue({ kind: 'after', delayMs: 1 }, undefined, CREATED)).toBeUndefined()
   })
 })

@@ -48,6 +48,7 @@ import {
   MAX_PROMPT_LENGTH,
   ScheduleRuleError,
   latestMissedDue,
+  resumedDue,
   subsequentDue,
   validateRule,
 } from './time.ts'
@@ -339,8 +340,9 @@ export class SchedulerService extends TypertRemoteService {
 
   /**
    * Update editable fields of one record. A rule patch recomputes the next
-   * due moment from now and re-arms the timer; a finished record rejects
-   * rescheduling.
+   * due moment from now and re-arms the timer; resuming moves the next due
+   * moment to the first occurrence after now and finishes a record with none
+   * left; a finished record rejects rescheduling.
    * @param id - schedule identity.
    * @param update - prompt, status, and/or rule patch.
    * @param by - calling session allowed to edit; omitted for host authority.
@@ -356,15 +358,21 @@ export class SchedulerService extends TypertRemoteService {
       if (update.rule !== undefined && record.status === 'done') {
         throw new ScheduleRuleError('a finished schedule cannot be rescheduled')
       }
-      const rescheduled = update.rule === undefined ? undefined : validateRule(update.rule, this.now())
+      const now = this.now()
+      const rescheduled = update.rule === undefined ? undefined : validateRule(update.rule, now)
+      const resuming = (update.status ?? record.status) === 'active' && record.status !== 'active'
+      const nextDue = rescheduled === undefined
+        ? resuming ? resumedDue(record.rule, record.nextDue, now) : record.nextDue
+        : rescheduled.due
       const promptChanged = prompt !== record.prompt
       const promptRevision = record.promptRevision ?? 1
+      const { nextDue: _priorDue, ...rest } = record
       return {
-        ...record,
+        ...rest,
         prompt,
         rule: rescheduled?.rule ?? record.rule,
-        status: update.status ?? record.status,
-        ...(rescheduled === undefined ? {} : { nextDue: rescheduled.due }),
+        status: resuming && nextDue === undefined ? 'done' : (update.status ?? record.status),
+        ...(nextDue === undefined ? {} : { nextDue }),
         ...(promptChanged
           ? {
             promptRevision: promptRevision + 1,
@@ -372,7 +380,7 @@ export class SchedulerService extends TypertRemoteService {
               version: promptRevision + 1,
               prompt,
               editedBy: by === undefined ? record.createdBy : { kind: 'user', sessionId: by },
-              editedAt: this.now(),
+              editedAt: now,
             },
           }
           : {}),

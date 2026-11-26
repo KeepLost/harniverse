@@ -195,8 +195,9 @@ async create(input: ScheduleCreateInput): Promise<ScheduleRecord>
 
 /**
  * Update editable fields of one record. A rule patch recomputes the next
- * due moment from now and re-arms the timer; a finished record rejects
- * rescheduling.
+ * due moment from now and re-arms the timer; resuming moves the next due
+ * moment to the first occurrence after now and finishes a record with none
+ * left; a finished record rejects rescheduling.
  * @param id - schedule identity.
  * @param update - prompt, status, and/or rule patch.
  * @param by - calling session allowed to edit; omitted for host authority.
@@ -215,5 +216,5 @@ async remove(id: string, by?: SessionId): Promise<boolean>
 
 Types: [SessionId](core.md)
 
-Source: [`packages/schedule/scheduler/src/index.ts:116`](../../packages/schedule/scheduler/src/index.ts)
+Source: [`packages/schedule/scheduler/src/index.ts:117`](../../packages/schedule/scheduler/src/index.ts)
 <!-- END GENERATED cordis-surface -->

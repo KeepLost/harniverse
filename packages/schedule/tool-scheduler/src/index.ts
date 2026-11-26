@@ -130,8 +130,8 @@ export function apply(ctx: Context): void {
           scheduleId: record.id,
           prompt: record.prompt,
           status: record.status,
-          // v8 ignore next 1 -- exhausted projections are covered by the scheduler dispatch tests
-          nextDue: record.nextDue === undefined ? 'none' : new Date(record.nextDue).toISOString(),
+          // v8 ignore next 1 -- an active projection always carries a due moment
+          nextDue: record.status !== 'active' || record.nextDue === undefined ? 'none' : new Date(record.nextDue).toISOString(),
           // v8 ignore next 1 -- dispatched job projections are covered by the scheduler dispatch tests
           target: record.jobSessionId === undefined ? record.target.kind : 'job',
         })),
@@ -160,9 +160,13 @@ export function apply(ctx: Context): void {
       },
       render: (args, value) => [{
         type: 'text',
-        text: value.updated
-          ? `Scheduled task ${value.scheduleId} is now ${value.status}; the next run is at ${value.nextDue}.`
-          : `No scheduled task ${args.schedule_id} owned by this session was found.`,
+        text: !value.updated
+          ? `No scheduled task ${args.schedule_id} owned by this session was found.`
+          : value.status === 'paused'
+            ? `Scheduled task ${value.scheduleId} is now paused; it will not run until it is resumed.`
+            : value.status === 'done'
+              ? `Scheduled task ${value.scheduleId} is done; no further run is scheduled.`
+              : `Scheduled task ${value.scheduleId} is now active; the next run is at ${value.nextDue}.`,
       }],
     },
     async execute(args, exec) {
@@ -178,8 +182,9 @@ export function apply(ctx: Context): void {
         updated: updated !== undefined,
         scheduleId: args.schedule_id,
         status: updated?.status ?? 'unknown',
-        // v8 ignore next 1 -- paused and exhausted projections carry no due moment
-        nextDue: updated?.nextDue === undefined ? 'none' : new Date(updated.nextDue).toISOString(),
+        nextDue: updated?.status === 'active' && updated.nextDue !== undefined
+          ? new Date(updated.nextDue).toISOString()
+          : 'none',
       }
     },
   }))

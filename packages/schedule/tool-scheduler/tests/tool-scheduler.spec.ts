@@ -246,4 +246,51 @@ describe('tool-scheduler unit composition', () => {
       await cleanup()
     }
   })
+
+  it('schedule_update reports a pause without a next run and a resume with its first future run', async () => {
+    const { test, cleanup } = await harness()
+    try {
+      const definitions = test.definitions
+      const render = renderOf(definitions.schedule_update)
+      const session = test.ctx.sessions.create(SessionId('pause-owner'))
+      const exec = { agent: agentOf(session), signal: new AbortController().signal }
+      const before = Date.now()
+      const created = await definitions.schedule_create.execute({ prompt: 'on hold', after_minutes: 10 }, exec) as {
+        scheduleId: string
+      }
+      const due = Date.now() + 10 * 60_000
+      const updateArgs = { schedule_id: created.scheduleId }
+
+      const paused = await definitions.schedule_update.execute({ ...updateArgs, status: 'paused' }, exec) as {
+        status: string
+        nextDue: string
+      }
+      expect(paused).toEqual({ updated: true, scheduleId: created.scheduleId, status: 'paused', nextDue: 'none' })
+      expect(render({ ...updateArgs, status: 'paused' }, paused)[0]).toMatchObject({
+        text: `Scheduled task ${created.scheduleId} is now paused; it will not run until it is resumed.`,
+      })
+      const listed = await definitions.schedule_list.execute({}, exec) as { schedules: { status: string; nextDue: string }[] }
+      expect(listed.schedules[0]).toMatchObject({ status: 'paused', nextDue: 'none' })
+
+      const resumed = await definitions.schedule_update.execute({ ...updateArgs, status: 'active' }, exec) as {
+        updated: boolean
+        scheduleId: string
+        status: string
+        nextDue: string
+      }
+      expect(resumed).toMatchObject({ updated: true, scheduleId: created.scheduleId, status: 'active' })
+      expect(Date.parse(resumed.nextDue)).toBeGreaterThanOrEqual(before + 10 * 60_000)
+      expect(Date.parse(resumed.nextDue)).toBeLessThanOrEqual(due)
+      expect(render({ ...updateArgs, status: 'active' }, resumed)[0]).toMatchObject({
+        text: `Scheduled task ${created.scheduleId} is now active; the next run is at ${resumed.nextDue}.`,
+      })
+      expect(render(updateArgs, {
+        updated: true, scheduleId: created.scheduleId, status: 'done', nextDue: 'none',
+      })[0]).toMatchObject({
+        text: `Scheduled task ${created.scheduleId} is done; no further run is scheduled.`,
+      })
+    } finally {
+      await cleanup()
+    }
+  })
 })
