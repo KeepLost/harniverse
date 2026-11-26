@@ -26,7 +26,7 @@ export { McpAuthorizationRequired, McpLocalError } from './oauth-errors.ts'
 export type { McpAuthorizationReason, McpLocalErrorCode } from './oauth-errors.ts'
 export type { McpOAuthFlow } from './oauth-flow.ts'
 export type { McpConnectionOAuth, McpOAuthAuthorizationState } from './oauth-session.ts'
-export type { McpOAuthCredentialStore } from './oauth-store.ts'
+export type { McpOAuthCredentialStore } from './types.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 

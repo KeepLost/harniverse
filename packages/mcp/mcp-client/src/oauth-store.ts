@@ -15,6 +15,7 @@ import {
   OpenIdProviderDiscoveryMetadataSchema,
 } from '@modelcontextprotocol/sdk/shared/auth.js'
 import type { Config } from './config.ts'
+import type { McpOAuthCredentialStore } from './types.ts'
 import { McpAuthorizationRequired, McpLocalError } from './oauth-errors.ts'
 
 /** Prefix of every OAuth grant reference in the credentials seam. */
@@ -64,26 +65,6 @@ export function mcpOAuthServerKey(config: Config): string {
   return 'serverId' in config && typeof config.serverId === 'string' ? config.serverId : config.serverName
 }
 
-/** Read and write face of the credentials seam (structural: this package does not depend on the credentials package). */
-export interface McpOAuthCredentialStore {
-  /**
-   * Read one reference's current value.
-   * @param ref - Reference to resolve.
-   * @returns The stored value, or `undefined` while nothing is stored.
-   */
-  resolve(ref: string): Promise<{ readonly value: string } | undefined>
-  /**
-   * Durably store one value under a reference.
-   * @param ref - Reference to store under.
-   * @param value - Non-empty value.
-   */
-  set(ref: string, value: string): Promise<void>
-  /**
-   * Remove one reference; removing an absent reference is a no-op.
-   * @param ref - Reference to remove.
-   */
-  unset(ref: string): Promise<void>
-}
 
 const GrantSchema = z.object({
   version: z.literal(1),

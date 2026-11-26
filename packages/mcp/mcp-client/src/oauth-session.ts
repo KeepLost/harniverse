@@ -20,7 +20,8 @@ import type { McpAuthorizationReason } from './oauth-errors.ts'
 import { McpOAuthFlow, tokenExpiryOf } from './oauth-flow.ts'
 import { NEVER_ABORTED, oauthFailure, oauthFetch } from './oauth-request.ts'
 import { McpOAuthGrantStore, serializedGrantWrite } from './oauth-store.ts'
-import type { McpOAuthBinding, McpOAuthCredentialStore, McpOAuthGrant } from './oauth-store.ts'
+import type { McpOAuthBinding, McpOAuthGrant } from './oauth-store.ts'
+import type { McpOAuthCredentialStore } from './types.ts'
 
 /** Authorization state of an OAuth-configured server, as status surfaces report it. */
 export type McpOAuthAuthorizationState =

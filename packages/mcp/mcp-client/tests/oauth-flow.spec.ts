@@ -12,7 +12,7 @@ import { createOAuthSession } from '@deepseek-ai/dsh-mcp-client/src/oauth-sessio
 import type { McpOAuthSession, McpOAuthSessionHooks } from '@deepseek-ai/dsh-mcp-client/src/oauth-session.ts'
 import type { McpOAuthFlow } from '@deepseek-ai/dsh-mcp-client/src/oauth-flow.ts'
 import { tokenExpiryOf } from '@deepseek-ai/dsh-mcp-client/src/oauth-flow.ts'
-import type { McpOAuthCredentialStore } from '@deepseek-ai/dsh-mcp-client/src/oauth-store.ts'
+import type { McpOAuthCredentialStore } from '@deepseek-ai/dsh-mcp-client/src/types.ts'
 import { OAuthFixture } from './oauth-fixture-server.ts'
 import { authorize, consent, httpConfig, MemoryCredentials, optionsOf, readGrant, REDIRECT_URI, STATE } from './oauth-harness.ts'
 

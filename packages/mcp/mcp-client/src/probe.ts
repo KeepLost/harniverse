@@ -26,7 +26,7 @@ import type {
   McpProbeStage,
   McpProbeSuccess,
 } from './types.ts'
-import type { McpOAuthCredentialStore } from './oauth-store.ts'
+import type { McpOAuthCredentialStore } from './types.ts'
 
 /** Default whole-probe budget (ms): interactive surfaces need a bounded answer. */
 const DEFAULT_PROBE_TIMEOUT_MS = 10_000

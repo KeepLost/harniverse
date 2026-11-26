@@ -34,6 +34,7 @@ Status: implemented
 - **拒绝回环或 IP 字面量重定向 URI 的授权服务器**无法在回环部署中使用；需要具名的 HTTPS 部署。
 - **独立行**（`cordis.yml`）没有进程内授权路径；它们使用已存储在其 `serverName` 下的授权。
 - **外部编辑**授权记录在连接等待期间不会被观察；连接在下一次挂载或 `resume()` 时重新判定授权。
+- `McpOAuthCredentialStore` 位于 `src/types.ts`：`/types` 子路径在每个 Client 类型程序中都映射到源码，因此必须不含运行时导入，否则类型感知的 Client 检查会丢失 `Context` 合并。
 - **被替换的连接会取消其尝试**：在浏览器仍打开时重新挂载 owner，会把尝试结算为 `cancelled`。
 
 ## 备选方案

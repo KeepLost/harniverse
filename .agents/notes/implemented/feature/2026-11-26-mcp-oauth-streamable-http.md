@@ -34,6 +34,7 @@ The architecture stays plugin-native: each registration is a Cordis effect, the 
 - **Authorization servers that refuse loopback or IP-literal redirect URIs** cannot be used from a loopback deployment; a named HTTPS deployment is required.
 - **Standalone rows** (`cordis.yml`) have no in-process authorization path; they use a grant already stored under their `serverName`.
 - **External edits** of a grant record are not observed while the connection waits; it re-judges the grant on its next mount or `resume()`.
+- `McpOAuthCredentialStore` lives in `src/types.ts`: the `/types` subpath is mapped to source for every Client type program, so it must stay free of runtime imports, or type-aware Client checks lose the `Context` merges.
 - **A replaced connection cancels its attempt**: remounting the owner while the browser is open settles the attempt as `cancelled`.
 
 ## Alternatives considered
