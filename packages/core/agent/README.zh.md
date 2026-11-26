@@ -40,6 +40,11 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 - `ctx.agents.setFactory(factory: AgentFactory): () => void`：注册创建工厂（循环在构造时调用）。第二个工厂会导致抛出；dispose 时清空槽位。
 - `ctx.agents.registerAdmission(admit: (session: Session) => void): () => void`：在工厂接管已准备的 Session 之前安装插件自有的同步策略；抛出的错误会在未发布 setup 和发布前中止流程。注册随 effect 作用域释放。
+- `ctx.agents.registerDriver(define: StepDriverDefinition): () => void`：向作用域派生自调用方作用域的每个 agent 贡献步骤驱动器；同一作用域内的第二次贡献会导致抛出，该注册以 effect 为作用域。
+- `ctx.agents.driverFor(scope): StepDriverDefinition | undefined`：读取 agent 作用域链上最近的贡献，全局层排在最后。
+
+`AgentMachine` 是每个驱动器都在其上运行的 `Agent`：它拥有收件箱、取消、维护与回合，并让一个已封存的 `StepDriver` 拥有每个步骤。机器由工厂构造并封存；见[步骤驱动器](../../../docs/subsystems/core.md#step-drivers)。
+
 - `ctx.agents.create(options: CreateAgentOptions): Promise<AgentHandle>`：创建会话和 agent，在不发布的情况下等待可选 setup，然后通过最终的 `SessionStore.enter()` 与 `AgentRegistry.enter()` 检查发布。不支持并发创建同一 ID：多个操作可以进行准备，但只有一个能进入；每个失败方都会回滚其私有作用域／会话／驱动器。可选且只用于创建的 `signal` 会取消未发布的 setup，并在返回 handle 前分离；之后的取消使用 `handle.dispose()` 或 `agent.cancel()`。发布包含在回滚范围内，回滚期间每条已交付创建边都会成对处理。未注册工厂时拒绝。
 - `ctx.agents.resume(options: ResumeAgentOptions): Promise<AgentHandle>`：加载持久化会话（[会话持久化](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)），创建新的未发布 agent 作用域，等待可选 setup，并使用相同的最终进入发布序列。其可选 `signal` 同样只用于创建。未注册工厂或未配置会话持久化时拒绝。
 - `ctx.agents.close(id: SessionId): Promise<boolean>`：调用该实时 Agent 进入注册表时由工厂提供的确切记忆化 disposer。并发调用方加入同一个 disposer；id 不存在时返回 `false`，而没有工厂自有 close 能力的直接注册 Agent 会被拒绝，不会从裸注册表条目模拟 teardown。

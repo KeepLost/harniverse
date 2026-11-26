@@ -9,12 +9,14 @@ import { Context, FiberState, getTraceable, Service, symbols } from '@deepseek-a
 import type { Fiber } from '@deepseek-ai/cordis'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { isPromise } from 'node:util/types'
-import { scopeTarget } from '@deepseek-ai/dsh-scope'
-import type { Scoped } from '@deepseek-ai/dsh-scope'
+import { scopeTarget, ScopedLayers } from '@deepseek-ai/dsh-scope'
+import type { Scoped, ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { TypertContext, TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
+import type { StepDriverDefinition } from './machine.ts'
 import type { Agent, AgentOptions } from './runtime-types.ts'
 
+export * from './machine.ts'
 export * from './runtime-types.ts'
 export * from './types.ts'
 export * from './inbox.ts'
@@ -249,6 +251,14 @@ interface FactorySlot {
   readonly target: AgentFactory
 }
 
+/** One scope's contribution to the step-driver registry. */
+class DriverLayer implements ScopeLayer {
+  definition: StepDriverDefinition | undefined
+  isEmpty(): boolean {
+    return this.definition === undefined
+  }
+}
+
 /**
  * Agent service (`ctx.agents`): tracks live agents and carries the initiating
  * Agent through one process-local asynchronous driver chain. Agent *creation*
@@ -264,6 +274,8 @@ interface FactorySlot {
 export class AgentRegistry extends Service {
   private store = new Map<SessionId, AgentEntry>()
   private factory: FactorySlot | undefined
+  /** Step drivers by scope: the global layer holds none, presets register theirs under their standing mount. */
+  private readonly drivers = new ScopedLayers<DriverLayer>(() => new DriverLayer(), () => {})
   private readonly admissions = new Set<(session: Session) => void>()
   private readonly initiators = new AsyncLocalStorage<Agent | undefined>()
   private readonly initiatorRuns = new AsyncLocalStorage<InitiatorRun>()
@@ -421,6 +433,39 @@ export class AgentRegistry extends Service {
    */
   assertAdmission(session: Session): void {
     for (const admit of this.admissions) admit(session)
+  }
+
+  /**
+   * Contribute the step driver for agents whose scope descends from the
+   * calling context's scope: an agent preset names its driver by composing
+   * such a row. The nearest scope along an agent's parent chain wins.
+   * @param define - builds one agent's driver from its machine host.
+   * @returns the effect-scoped registration disposer.
+   * @throws when the calling scope already contributes a driver.
+   */
+  registerDriver(define: StepDriverDefinition): () => void {
+    return this.drivers.effect(this.ctx, (layer) => {
+      if (layer.definition !== undefined) throw new Error('a step driver is already registered in this scope')
+      layer.definition = define
+      return () => { layer.definition = undefined }
+    }, { label: 'agents.registerDriver()' })
+  }
+
+  /**
+   * The step driver an agent's scope chain composes.
+   * @param scope - the agent's scope key, or `undefined` for the global view.
+   * @returns the nearest registered definition, or `undefined` when the chain contributes none.
+   */
+  driverFor(scope: ScopeKey | undefined): StepDriverDefinition | undefined {
+    // The chain lists the farthest ancestor first, so the nearest contribution reads last.
+    const chain = this.drivers.chainLayers(scope).reverse()
+    for (const layer of chain) {
+      // A layer exists only while it holds a registration, so this arm never runs.
+      /* v8 ignore next -- see above */
+      if (layer.definition === undefined) continue
+      return layer.definition
+    }
+    return this.drivers.global.definition
   }
 
   /**

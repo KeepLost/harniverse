@@ -4,9 +4,9 @@ import LlmRuntime, { createUserMessage, CallId, LlmError, MessageSource, Provide
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason, type UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineContentToolFixture, type PostToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentMachine, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { ReactLoopAgent } from '../src/agent.ts'
+import { modelLoopDriver } from '../src/agent.ts'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
@@ -532,9 +532,10 @@ describe('turn numbering continues across seeded sessions', () => {
     ctx2.llm.registerAdapter(['mock'], second)
 
     const seeded = ctx2.sessions.create(SessionId('forked'), { seed: [...agent.session.events] })
-    const forked = new ReactLoopAgent(
+    const forked = new AgentMachine(
       ctx2, SessionId('forked-agent'), { provider: 'mock', model: 'mock' }, seeded,
     )
+    forked.seal(modelLoopDriver)
 
     const turns: number[] = []
     ctx2.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })

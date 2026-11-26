@@ -1,56 +1,27 @@
 /**
- * Default Agent driver over queued turns and step-boundary input. Every request
- * is derived from the session log.
+ * The model-loop step driver: one step is one model request plus the tools it
+ * calls. Every request is derived from the session log.
  * @module dsh-agent-loop/agent
  */
 
-import type {
-  Agent,
-  AgentCancelCause,
-  AgentEventDispatch,
-  AgentOptions,
-  AgentStatus,
-  CancelOptions,
-  InboxTarget,
-  PreStepDecision,
-  RequestErrorAction,
-} from '@deepseek-ai/dsh-agent'
-import { Inbox, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
+import { assembleContextFor } from '@deepseek-ai/dsh-agent'
+import type { AgentHost, StepDriver, StepDriverDefinition, StepEndReason, StepPosition } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, LlmCallConfig, LlmWireAttempt, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
   BlockAssembler,
   LlmError,
-  assertNever,
   createAssistantMessage,
   deepFreeze,
-  errorChain,
   markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
-import type { Scope } from '@deepseek-ai/dsh-scope'
-import { createScope } from '@deepseek-ai/dsh-scope'
-import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
-import { canonicalHeader, headerEquals, ToolCallRecovery } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, RequestContext } from '@deepseek-ai/dsh-session'
+import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
-import type { Context } from '@deepseek-ai/cordis'
+import type { RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import { executeToolCalls } from './tool-calls.ts'
 
-type Phase =
-  | { kind: 'idle'; lastTurn: number }
-  | {
-    kind: 'maintenance'
-    abort: AbortController
-    lastTurn: number
-    wakeRequested: boolean
-  }
-  | { kind: 'running'; abort: AbortController; turn: number; step: number; wakeRequested: boolean }
-
-type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
-
-type PreparedStep =
-  | { kind: 'reject' }
-  | { kind: 'enter'; messages: UserMessage[]; assembly: PromptAssembly }
-
+/** Remove adapter-derived values before plugins propose the next request config. */
 /** Remove adapter-derived values before plugins propose the next request config. */
 function requestProposal(header: EpochHeader): LlmCallConfig {
   if (header.adapterDefaults === undefined) return header.config
@@ -60,354 +31,43 @@ function requestProposal(header: EpochHeader): LlmCallConfig {
   return proposal
 }
 
+/** The default step driver: the model loop. */
+export const modelLoopDriver: StepDriverDefinition = host => new ModelLoopDriver(host)
+
 /**
- * Read the cause {@link ReactLoopAgent.cancel} aborted a loop-owned signal
- * with, copying the fields `turn/end` records. The live reason stays the
- * caller's object, and Node's fetch assigns a `stack` onto it that
- * `Session.append` would either log or reject as data JSON cannot hold.
- * @param signal - a turn or maintenance signal this loop owns.
- * @returns the copied cause, or undefined while the signal is still live.
+ * Drives one step of an agent through a model request and the tool calls it
+ * returns. The machine owns the turn, the claim, and the step boundaries.
  */
-function abortedCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
-  if (!signal.aborted) return undefined
-  // `cancel()` is the only aborter of the signals this loop owns.
-  const cause = signal.reason as AgentCancelCause
-  switch (cause.kind) {
-    case 'user':
-    case 'parent':
-    case 'disposed':
-      return { kind: cause.kind }
-    case 'hook':
-      return { kind: 'hook', reason: cause.reason }
-    /* v8 ignore next -- cancel accepts the closed AgentCancelCause union */
-    default:
-      return assertNever(cause)
-  }
-}
-
-/** Drives one session through turn and step boundaries. */
-export class ReactLoopAgent implements Agent {
-  readonly inbox: Inbox
-  private phase: Phase
-  private accepting = true
-  private activityDone: Promise<void> = Promise.resolve()
-
-  /** The agent-scoped registration boundary; the lifecycle owner unwinds it after the driver exits. */
-  readonly scope: Scope
-  readonly ctx: Context
-
-  /** Fused dispatcher, built once in the constructor so hot-path dispatches never allocate. */
-  private readonly dispatch: AgentEventDispatch
-
-  /** Whether this loop instance has appended its initial/resume request anchor. */
+class ModelLoopDriver implements StepDriver<PromptAssembly> {
   private requestHeaderLogged = false
 
-  constructor(
-    private loopCtx: Context,
-    public readonly id: SessionId,
-    public readonly options: AgentOptions,
-    public readonly session: Session,
-  ) {
-    this.dispatch = agentEvents(loopCtx, this)
-    this.inbox = new Inbox(session, {
-      inserted: (message) => { this.dispatch.emit('agent/inbox/inserted', { message }) },
-      discarded: (message) => { this.dispatch.emit('agent/inbox/discarded', { message }) },
-      claimed: (message, turn) => { this.dispatch.emit('agent/inbox/claimed', { message, turn }) },
-    })
-    const lastTurn = session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 0
-    this.phase = { kind: 'idle', lastTurn }
-    this.scope = createScope(loopCtx, this)
-    this.ctx = this.scope.ctx.extend({ agent: this })
+  constructor(private readonly host: AgentHost) {}
+
+  /** Each step reads the prompt sections and tool schemas that plugins registered. */
+  prepare(position: StepPosition): Promise<PromptAssembly> {
+    return this.host.ownerCtx.systemPrompt.assemble(assembleContextFor(this.host.agent, position.signal))
   }
 
-  get status(): AgentStatus {
-    return this.phase.kind === 'idle' || this.phase.kind === 'maintenance' ? 'idle' : 'running'
+  run(position: StepPosition, assembly: PromptAssembly): Promise<StepEndReason | null> {
+    // The entered messages reach the request through the session log, not this argument.
+    return this.step(position, assembly)
   }
 
-  /** Commit a phase and publish its externally visible status transition. */
-  private setPhase(next: Phase): void {
-    const previousStatus = this.status
-    this.phase = next
-    const status = this.status
-    if (status !== previousStatus) {
-      this.dispatch.emit('agent/status', { status })
-    }
-  }
-
-  /** Stop new work admission before lifecycle teardown begins. */
-  beginDispose(): void {
-    this.accepting = false
-  }
-
-  /** Reserve lifecycle teardown only from true idle with no pending input. */
-  beginDisposeIfIdle(): boolean {
-    if (!this.accepting || this.phase.kind !== 'idle' || this.inbox.hasPending) return false
-    this.accepting = false
-    return true
-  }
-
-  private assertAccepting(): void {
-    if (!this.accepting) throw new Error(`agent "${this.id}" is closing`)
-  }
-
-  send(message: UserMessage, target: InboxTarget, wakeup: boolean): void {
-    this.assertAccepting()
-    // Waking input cannot join an aborted activity, so it starts the next turn.
-    // Captured before the insertion so a reentrant cancel from a splice observer cannot reclassify it.
-    const wakingAfterAbort = wakeup && this.phase.kind !== 'idle' && this.phase.abort.signal.aborted
-    const resolvedTarget = wakingAfterAbort ? 'next-turn' : target
-    this.inbox.splice(resolvedTarget, Infinity, 0, [message])
-    if (wakeup) this.wakeDriver(wakingAfterAbort)
-  }
-
-  followup(input: UserMessage): void {
-    this.send(input, 'next-turn', true)
-  }
-
-  steer(input: UserMessage): void {
-    this.send(input, 'next-step', true)
-  }
-
-  inject(input: UserMessage): void {
-    this.send(input, 'next-step', false)
-  }
-
-  cancel(cause: AgentCancelCause, options: CancelOptions = {}): void {
-    if (!options.keepInbox) {
-      this.inbox.clear()
-      if (this.phase.kind !== 'idle') this.phase.wakeRequested = false
-    }
-    if (this.phase.kind !== 'idle') this.phase.abort.abort(cause)
-  }
-
-  runMaintenance<T>(job: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    this.assertAccepting()
-    if (this.phase.kind !== 'idle') throw new Error(`agent "${this.id}" already has active work`)
-    const done = Promise.withResolvers<void>()
-    const maintenance: Phase = {
-      kind: 'maintenance',
-      abort: new AbortController(),
-      lastTurn: this.phase.lastTurn,
-      wakeRequested: false,
-    }
-    this.setPhase(maintenance)
-    this.activityDone = done.promise
-    return (async () => {
-      try {
-        return await job(maintenance.abort.signal)
-      } finally {
-        this.setPhase({ kind: 'idle', lastTurn: maintenance.lastTurn })
-        if (maintenance.wakeRequested && this.inbox.hasPending) this.wakeDriver()
-        done.resolve()
-      }
-    })()
-  }
-
-  /**
-   * Start one driver, or latch its wake behind maintenance or an aborted
-   * activity. A wake sent while idle always opens its turn boundary, even
-   * when its message was cleared; only a latched replay is suppressed when
-   * the queue no longer holds the wake.
-   * @param wakeAfterAbort - the {@link send} classification, captured before
-   *   the inbox insertion so a reentrant cancel cannot reclassify it.
-   */
-  private wakeDriver(wakeAfterAbort = false): void {
-    if (this.phase.kind !== 'idle') {
-      // Maintenance and aborted drivers cannot deliver the wake: latch it for
-      // replay at convergence. Live drivers claim queued work themselves;
-      // disposal never latches, so teardown waits on no model turn.
-      const reason = abortedCancelCause(this.phase.abort.signal)
-      if (reason?.kind !== 'disposed' && (this.phase.kind === 'maintenance' || wakeAfterAbort)) {
-        this.phase.wakeRequested = true
-      }
-      return
-    }
-    const driver = Promise.withResolvers<void>()
-    this.activityDone = driver.promise
-    this.setPhase({
-      kind: 'running',
-      abort: new AbortController(),
-      turn: this.phase.lastTurn,
-      step: 0,
-      wakeRequested: false,
-    })
-    this.loopCtx.agents.withInitiator(this, () => this.kick()).then(driver.resolve, driver.reject)
-  }
-
-  async whenIdle(): Promise<void> {
-    let activity: Promise<void>
-    do {
-      await (activity = this.activityDone)
-    } while (activity !== this.activityDone)
-  }
-
-  /** Report one failure at its live boundary, then preserve it for driver containment. */
-  private throwError(error: unknown): never {
-    const turn = this.phase.kind === 'running' ? this.phase.turn : this.phase.lastTurn
-    const step = this.phase.kind === 'running' ? this.phase.step : 0
-    this.dispatch.emit('agent/error', { turn, step, error })
-    throw error
-  }
-
-  private async kick(): Promise<void> {
-    try {
-      while (await this.turn()) {}
-    } catch (_error) {
-      // Reported failures and cancellation are contained at the driver boundary.
-    } finally {
-      /* v8 ignore next -- kick owns a running phase until this driver boundary */
-      if (this.phase.kind === 'running') {
-        const { turn, wakeRequested } = this.phase
-        this.setPhase({ kind: 'idle', lastTurn: turn })
-        if (wakeRequested && this.inbox.hasPending) this.wakeDriver()
-      }
-    }
-  }
-
-  private async preStep(target: InboxTarget, position: { turn: number; step: number }): Promise<PreparedStep> {
-    /* v8 ignore next -- private callers establish the running phase before proposing a step */
-    if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": pre-step outside running phase`)
-    const signal = this.phase.abort.signal
-    const claimed = this.inbox.claim(target, position.turn)
-    const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
-    signal.throwIfAborted()
-    const decision = await this.dispatch.waterfall(
-      'agent/pre-step', { messages: claimed, ...position, signal },
-      (): Promise<PreStepDecision> => Promise.resolve<PreStepDecision>({
-        kind: 'enter',
-        messages: claimed,
-      }),
-    )
-    signal.throwIfAborted()
-    return decision.kind === 'reject' ? decision : { ...decision, assembly }
-  }
-
-  /** Open one turn before claiming its first proposed step. */
-  private async turn(): Promise<boolean> {
-    if (this.phase.kind !== 'running') {
-      this.throwError(new Error(`agent "${this.id}": turn without driver reservation`))
-    }
-    const phase = this.phase
-    const { signal } = phase.abort
-    signal.throwIfAborted()
-    const turn = phase.turn + 1
-    try {
-      this.session.append('turn/start', { turn })
-    } catch (error: unknown) {
-      this.throwError(error)
-    }
-    phase.turn = turn
-    let turnEnds: TurnEndReason | null = null
-    let target: InboxTarget = 'next-turn'
-    try {
-      while (true) {
-        signal.throwIfAborted()
-        const step = phase.step + 1
-        const decision = await this.preStep(target, { turn, step })
-        if (decision.kind === 'reject') {
-          turnEnds = { kind: 'blocked' }
-          return false
-        }
-        if (turnEnds && decision.messages.length === 0) break
-        // A removed waking message or an enter decision rewritten to empty
-        // still owns the initial turn boundary, but it spends no model call.
-        if (phase.step === 0 && decision.messages.length === 0) {
-          turnEnds = { kind: 'completed' }
-          return false
-        }
-        signal.throwIfAborted()
-        this.session.append('step/start', { turn, step })
-        phase.step = step
-        const toolRecovery = new ToolCallRecovery()
-        const stopRecovery = this.ctx.on('session/event', (session, event) => {
-          if (session === this.session) toolRecovery.observe(event)
-        })
-        try {
-          for (const message of decision.messages) {
-            if (message.source.kind === 'user' && message.source.files !== undefined && message.source.files.length > 0) {
-              this.session.append('user/file', { files: message.source.files })
-            }
-            this.session.append('user/message', message, { surfaceOp: 'append' })
-          }
-          // max-tokens is sticky: once any step hits the ceiling, later steps
-          // that complete normally must not downgrade the turn outcome.
-          const stepEnd = await this.step(decision.assembly)
-          // max-tokens stays sticky: a later completed step must not
-          // downgrade the turn outcome.
-          if (turnEnds === null || turnEnds.kind !== 'max-tokens') turnEnds = stepEnd
-        } catch (error: unknown) {
-          try {
-            for (const event of toolRecovery.results()) {
-              this.session.append('tool/result', event.data, {
-                surfaceOp: 'append',
-                ...event.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: event.sourceEventSeqs },
-              })
-            }
-          } catch (recoveryError: unknown) {
-            throw new AggregateError([error, recoveryError], 'Step failed and its pending tool results could not be recorded', { cause: error })
-          }
-          throw error
-        } finally {
-          stopRecovery()
-          this.session.append('step/end', { turn, step })
-        }
-        signal.throwIfAborted()
-        if (turnEnds && this.inbox.nextStep.length === 0) {
-          await this.dispatch.serial('agent/turn-stopping', { turn, signal })
-          signal.throwIfAborted()
-        }
-        if (turnEnds && this.inbox.nextStep.length === 0) break
-        target = 'next-step'
-      }
-    } catch (error: unknown) {
-      // A cause is present exactly while the signal is aborted.
-      const cause = abortedCancelCause(signal)
-      if (cause !== undefined) {
-        turnEnds = { kind: 'aborted', reason: cause }
-        throw error
-      }
-      // Every failure is structured: an `LlmError` keeps its facts, anything
-      // else flattens to `errorChain` text under the `UNKNOWN` code.
-      turnEnds = {
-        kind: 'error',
-        error: error instanceof LlmError
-          ? error.failure
-          : { message: errorChain(error), code: 'UNKNOWN' },
-      }
-      this.throwError(error)
-    } finally {
-      try {
-        // oxlint-disable-next-line typescript/no-non-null-assertion -- every exit assigns a turn ending
-        this.session.append('turn/end', { turn, reason: turnEnds! })
-      } catch (error: unknown) {
-        this.throwError(error)
-      }
-    }
-    if (!this.inbox.hasPending) return false
-    phase.abort = new AbortController()
-    // A fresh controller makes a latch set on the old one stale: the live driver claims the queue itself.
-    phase.wakeRequested = false
-    phase.step = 0
-    return true
-  }
-
-  private async step(assembly: PromptAssembly): Promise<StepEndReason | null> {
-    /* v8 ignore next -- private callers establish the running phase before executing a step */
-    if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": step outside running phase`)
-    const { turn, step, abort: { signal } } = this.phase
+  private async step(position: StepPosition, assembly: PromptAssembly): Promise<StepEndReason | null> {
+    const { turn, step, signal } = position
     signal.throwIfAborted()
     const system = renderPrompt(assembly)
 
     while (true) {
       const { request, preparedCall } = await this.buildRequest(
-        turn, step, assembly.tools, system, this.session.deriveMessages(), signal,
+        turn, step, assembly.tools, system, this.host.session.deriveMessages(), signal,
       )
       const assembler = new BlockAssembler()
       const chunkSeqs: number[] = []
       const appendInterrupted = (): void => {
         const content = assembler.interruptedBlocks()
         if (content.length === 0) return
-        this.session.append('assistant/message', {
+        this.host.session.append('assistant/message', {
           turn,
           step,
           message: createAssistantMessage({
@@ -419,11 +79,11 @@ export class ReactLoopAgent implements Agent {
         }, { surfaceOp: 'append', sourceEventSeqs: chunkSeqs })
       }
       try {
-        const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request)
+        const stream = preparedCall?.stream(request) ?? this.host.ownerCtx.llm.stream(request)
         signal.throwIfAborted()
         for await (const chunk of stream) {
           signal.throwIfAborted()
-          chunkSeqs.push(this.session.append('assistant/chunk', { turn, step, chunk }).seq)
+          chunkSeqs.push(this.host.session.append('assistant/chunk', { turn, step, chunk }).seq)
           assembler.push(chunk)
         }
         signal.throwIfAborted()
@@ -433,7 +93,7 @@ export class ReactLoopAgent implements Agent {
       }
       const finish = assembler.finish
       if (finish.kind === 'error' || finish.kind === 'aborted') {
-        const action = await this.dispatch.waterfall(
+        const action = await this.host.dispatch.waterfall(
           'agent/request-error', {
             turn,
             step,
@@ -460,7 +120,7 @@ export class ReactLoopAgent implements Agent {
           ...assembler.replayState !== undefined ? { replayState: assembler.replayState } : {},
         },
       })
-      this.session.append(
+      this.host.session.append(
         'assistant/message',
         {
           turn,
@@ -475,8 +135,8 @@ export class ReactLoopAgent implements Agent {
       const toolCalls = message.content.filter(block => block.type === 'tool-call')
       if (toolCalls.length === 0) return { kind: 'completed' }
       const { concluded } = await executeToolCalls(
-        this.loopCtx, turn, step, toolCalls, signal,
-        context => this.inbox.splice('next-step', this.inbox.nextStep.length, 0, [context]),
+        this.host.ownerCtx, turn, step, toolCalls, signal,
+        context => this.host.inbox.splice('next-step', this.host.inbox.nextStep.length, 0, [context]),
       )
       return concluded ? { kind: 'completed' } : null
     }
@@ -494,20 +154,20 @@ export class ReactLoopAgent implements Agent {
     boundaryMessages: Message[],
     signal: AbortSignal,
   ): Promise<{ request: GenerateOptions; preparedCall?: PreparedLlmCall }> {
-    const { session } = this
+    const { session } = this.host
     const boundaryEventCount = session.seq
 
     // A loop instance starts from its declared route, restoring only an explicit
     // effort owned by that exact model. Later steps re-resolve marked defaults.
     const persistedHeader = session.requestHeader()
     const persistedConfig = persistedHeader?.config
-    const route = { provider: this.options.provider ?? '', model: this.options.model ?? '' }
+    const route = { provider: this.host.options.provider ?? '', model: this.host.options.model ?? '' }
     const reasoningEffort = persistedConfig?.provider === route.provider
       && persistedConfig.model === route.model
       && persistedHeader?.adapterDefaults?.reasoningEffort !== true
       ? persistedConfig.reasoningEffort
       : undefined
-    const maxTokens = this.options.maxTokens
+    const maxTokens = this.host.options.maxTokens
     const seedConfig = deepFreeze(structuredClone(
       this.requestHeaderLogged
         // oxlint-disable-next-line typescript/no-non-null-assertion -- the instance logged the header it now folds
@@ -518,18 +178,18 @@ export class ReactLoopAgent implements Agent {
           ...maxTokens === undefined ? {} : { maxTokens },
         },
     ))
-    const proposedConfig = await this.dispatch.waterfall(
+    const proposedConfig = await this.host.dispatch.waterfall(
       'agent/request', { turn, step, signal },
       () => Promise.resolve(seedConfig),
     )
     signal.throwIfAborted()
     if (!proposedConfig.provider || !proposedConfig.model) {
-      throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
+      throw new Error(`agent "${this.host.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
     }
     let config: LlmCallConfig
     let preparedCall: PreparedLlmCall | undefined
     try {
-      preparedCall = await this.loopCtx.llm.prepareCall(proposedConfig, signal)
+      preparedCall = await this.host.ownerCtx.llm.prepareCall(proposedConfig, signal)
       config = preparedCall.config
     } catch (error: unknown) {
       // Middleware may serve an unregistered route; terminal dispatch still requires an adapter.
@@ -544,12 +204,12 @@ export class ReactLoopAgent implements Agent {
       ...system ? { system } : {},
       ...tools.length > 0 ? { tools } : {},
     })
-    const baseline = this.session.requestHeader()
+    const baseline = this.host.session.requestHeader()
     if (!this.requestHeaderLogged) {
-      this.session.append('request/header', { header, reason: baseline === undefined ? 'initial' : 'resume' })
+      this.host.session.append('request/header', { header, reason: baseline === undefined ? 'initial' : 'resume' })
       this.requestHeaderLogged = true
     } else if (baseline === undefined || !headerEquals(baseline, header)) {
-      this.session.append('request/header', { header, reason: 'change' })
+      this.host.session.append('request/header', { header, reason: 'change' })
     }
 
     const contextWindow = preparedCall?.context?.contextWindow
@@ -597,7 +257,7 @@ export class ReactLoopAgent implements Agent {
       messages: requestMessages,
       ...header.system !== undefined ? { system: header.system } : {},
       ...header.tools !== undefined ? { tools: header.tools } : {},
-      sessionId: this.session.id,
+      sessionId: this.host.session.id,
       signal,
       wireExchangeId,
       onWireAttempt,

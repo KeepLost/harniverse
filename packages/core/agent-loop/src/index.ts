@@ -8,7 +8,7 @@
 import { Context, FiberState, Service } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import z from '@deepseek-ai/schemastery'
-import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { AgentMachine, emitAgentEvent } from '@deepseek-ai/dsh-agent'
 import type {
   Agent,
   AgentFactory,
@@ -20,13 +20,14 @@ import type {
   SessionStartSource,
 } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, SessionPreparation } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { ReactLoopAgent } from './agent.ts'
+import { modelLoopDriver } from './agent.ts'
 import { turnBoundaryProjectionDefinition } from './projection.ts'
 import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
 
@@ -149,7 +150,7 @@ function assertAgentOptions(options: AgentOptions): void {
 
 /** Prepared-but-unpublished agent resources sharing one memoized teardown. */
 interface PreparedAgent {
-  agent: ReactLoopAgent
+  agent: AgentMachine
   /** Aborts when the factory unloads, the caller cancels, or teardown begins — ends any setup await. */
   signal: AbortSignal
   /** Enter registries, announce, notify session-start, and start the machine. */
@@ -498,7 +499,7 @@ export class AgentLoop extends Service implements AgentFactory {
     callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
     this.ownership.signal.addEventListener('abort', onFactoryTeardown, { once: true })
 
-    let machine: ReactLoopAgent | undefined
+    let machine: AgentMachine | undefined
     let detachSession: (() => void) | undefined
     let detachAgent: (() => void) | undefined
     let disposing: Promise<void> | undefined
@@ -586,7 +587,7 @@ export class AgentLoop extends Service implements AgentFactory {
       throw abort.signal.reason instanceof Error ? abort.signal.reason : new Error(String(abort.signal.reason))
     }
     try {
-      const agent = machine = new ReactLoopAgent(loopCtx, id, options, session)
+      const agent = machine = new AgentMachine(loopCtx, id, options, session)
       machineReady.resolve()
       assertLive()
 
@@ -594,6 +595,10 @@ export class AgentLoop extends Service implements AgentFactory {
         agent,
         signal: abort.signal,
         publish: (source) => {
+          assertLive()
+          // Setup has composed the agent's scope: the driver its scope chain
+          // contributes replaces the model loop, once, before anything can drive it.
+          agent.seal(loopCtx.agents.driverFor(scopeOf(agent.ctx)) ?? modelLoopDriver)
           assertLive()
           detachSession = agent.ctx.sessions.enter(session)
           detachAgent = loopCtx.agents.enter(agent, ownerCtx.agent, dispose, closeIfIdle)
