@@ -228,10 +228,27 @@ describe('JsonRpcPeer', () => {
     second.send({ jsonrpc: '2.0', id: 'a', method: 'wait', params: {} })
     await vi_waitFor(() => { expect(asked).toBe(1) })
     second.failOutput(new Error('out broke'))
+    // The peer has observed the dead output before the answer is attempted.
+    await late.closed
     release.resolve(undefined)
     await new Promise(resolve => setTimeout(resolve, 20))
     late.close()
     jsonRpc.close()
+  })
+
+  it('fails a request whose write is refused by the output sink', async () => {
+    const pendingOutput = Promise.withResolvers<undefined>()
+    const jsonRpc = new JsonRpcPeer({
+      output: new WritableStream<Uint8Array>({
+        write: () => Promise.reject(new Error('sink refused')),
+      }),
+      input: new ReadableStream<Uint8Array>(),
+      outputClosed: pendingOutput.promise,
+    }, { notification: () => {}, request: () => Promise.resolve({}) })
+    const pending = jsonRpc.request('x', {})
+    await expect(pending).rejects.toMatchObject({ kind: 'transport', message: 'the agent connection failed: sink refused' })
+    await jsonRpc.closed
+    await expect(jsonRpc.notify('late', {})).rejects.toMatchObject({ kind: 'transport', message: 'the agent connection failed: sink refused' })
   })
 
   it('dispatches notifications and ignores malformed envelopes', async () => {

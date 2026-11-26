@@ -152,11 +152,17 @@ function openAttempt(options: AcpConnectOptions, version: AcpProtocol, handlers:
     child.failed,
     binding.closed.then((): never => { throw new AcpError('transport', 'the agent closed the connection') }),
   ])
-  void broken.catch(() => {
-    // Every guarded operation and the close watcher observe this rejection; this keeps it never unhandled.
-  })
+  // Every guarded operation and the close watcher observe this rejection.
+  void broken.catch(observeIgnored)
   return { child, binding, broken }
 }
+
+/**
+ * Observe a rejection nobody can act on: a best-effort message to an agent
+ * that is already gone, or a failure another owner reports. Observing it here
+ * keeps it from surfacing as unhandled.
+ */
+function observeIgnored(): void {}
 
 /** The setup failure a cancelled handshake, authentication, or fallback rejects with. */
 function abortError(): AcpError {
@@ -320,7 +326,7 @@ class Connection implements AcpConnection {
     const signal = options?.signal
     const onAbort = (): void => {
       // Best effort: the agent may be gone; the local cancellation stands either way.
-      void this.attempt.binding.cancel(sessionId).catch(() => {})
+      void this.attempt.binding.cancel(sessionId).catch(observeIgnored)
       turn.finish({ stopReason: 'cancelled' })
     }
     if (signal?.aborted === true) {
