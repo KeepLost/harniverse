@@ -16,7 +16,7 @@ This package contains no transport or Host service discovery logic. Its Client f
 
 The allowlist includes `settings/exposure-changed`, the API Proxy's Host-authoritative signal that namespace registration, configurable-provider, or capability topology may have changed the redacted settings description. Clients refetch from the authorized Settings endpoint rather than deriving exposure from the event payload. It independently forwards `agent-presets/change` so roster consumers refetch `agentPreset.list` directly; Profile topology is not treated as Settings exposure unless it actually changes the descriptor.
 
-The listener signature is not restated here. Each allowlisted event's cordis `Events` declaration lives in its owner package's client-safe `./types` export (`dsh-agent-presets`, `dsh-commands`, `dsh-credentials`, `dsh-llm`, `dsh-settings`), and both faces of this package pull those declarations in, so "forwarded verbatim" holds by construction rather than by proof. The Host face additionally asserts the list against `TypertForwardableEvent`, which rejects a name that is not a declared event, one that binds an AgentScope, and one whose shape is not one-way.
+The listener signature is not restated here. Each allowlisted event's cordis `Events` declaration lives in its owner package's client-safe `./types` export (`dsh-agent-presets`, `dsh-commands`, `dsh-credentials`, `dsh-llm`, `dsh-settings`, `dsh-client-session-reading`), and both faces of this package pull those declarations in, so "forwarded verbatim" holds by construction rather than by proof. The Host face additionally asserts the list against `TypertForwardableEvent`, which rejects a name that is not a declared event, one that binds an AgentScope, and one whose shape is not one-way.
 
 ## Build boundary
 
@@ -41,3 +41,4 @@ No direct effect; mounted Host capabilities own any model-visible behavior they 
 - The capability set is fixed by explicit build-time value imports; the Client does not discover the Host's active Services or Remote definitions at runtime.
 - Additional capabilities require an explicit `/remote` value import and mount in this assembly.
 - The standard Web Host supplies resume defaults and Agent-scope setup from the legacy API Proxy until that remaining BFF configuration moves into `api-remotes`.
+- **The session-reading contribution is a devDependency only** — `@deepseek-ai/dsh-client-session-reading` consumes this assembly's Client face for its own `ctx.remote` typing, so a peer edge back to it would close a dependency cycle in the package graph; the generated `/remote` contribution is inlined into `lib/client.js` at build time and needs no runtime edge.

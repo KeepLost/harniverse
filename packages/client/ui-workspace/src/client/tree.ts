@@ -8,6 +8,8 @@ import {
   type SessionSearchResultItem, type SessionSummary, type SubagentDescendantSummary,
   type WorkspaceId, type WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: the unread-row shape the optional `useSessionReading` root hook publishes.
+import type { SessionReadingUnreadRows } from '@deepseek-ai/dsh-client-session-reading/client'
 
 /** Group key for Sessions outside every Workspace. */
 export const UNGROUPED_KEY = ''
@@ -27,8 +29,10 @@ export interface SessionNode {
   running: boolean
   /** Running descendants connected through uninterrupted subagent-origin lineage. */
   runningSubagentCount: number
-  /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
-  completed: boolean
+  /** The Host reading ledger credits this session with an unacknowledged completed turn or a manual mark. */
+  unread: boolean
+  /** The unacknowledged completed turn ended with an error; meaningful only while `unread`. */
+  unreadFailed: boolean
   /** Registry-global pin: the row leads its section while pinned. */
   pinned: boolean
   updatedAt: number
@@ -66,8 +70,10 @@ export interface SearchResultNode {
   running: boolean
   /** Running descendants connected through uninterrupted subagent-origin lineage. */
   runningSubagentCount: number
-  /** Finished running while not selected and not yet opened (the green "done" reminder dot). */
-  completed: boolean
+  /** The Host reading ledger credits this session with an unacknowledged completed turn or a manual mark. */
+  unread: boolean
+  /** The unacknowledged completed turn ended with an error; meaningful only while `unread`. */
+  unreadFailed: boolean
   snippet?: string
 }
 
@@ -216,7 +222,8 @@ function groupByWorkspace(
 function sessionNode(
   s: SessionSummary,
   descendants: ReadonlyMap<SessionId, SubagentDescendantSummary>,
-  pinned = false,
+  unread: SessionReadingUnreadRows | undefined,
+  pinned: boolean,
 ): SessionNode {
   return {
     id: s.id,
@@ -224,7 +231,8 @@ function sessionNode(
     blank: s.blank,
     running: s.running,
     runningSubagentCount: descendants.get(s.id)?.runningCount ?? 0,
-    completed: s.completed === true,
+    unread: unread?.[s.id] !== undefined,
+    unreadFailed: unread?.[s.id]?.failed === true,
     pinned,
     updatedAt: s.updatedAt,
     ...(s.pendingInteraction === undefined ? {} : { pendingInteraction: s.pendingInteraction }),
@@ -258,6 +266,7 @@ function partitionPinned(members: readonly SessionSummary[], pinned: ReadonlySet
  * @param workspaces - real workspaces in stable Host order.
  * @param archivedSessionIds - registry-global archive set.
  * @param view - local expansion arrays.
+ * @param unread - unread rows of the reading ledger; absent while no session-reading plugin is composed.
  * @returns group sections in render order.
  */
 export function deriveGroups(
@@ -266,6 +275,7 @@ export function deriveGroups(
   archivedSessionIds: readonly SessionId[],
   pinnedSessionIds: readonly SessionId[],
   view: TreeView,
+  unread?: SessionReadingUnreadRows,
 ): GroupNode[] {
   const archived = new Set(archivedSessionIds)
   const pinned = new Set(pinnedSessionIds)
@@ -288,7 +298,9 @@ export function deriveGroups(
       sessionCount: g.sessions.length,
       expanded,
       containsCurrent: g.key === currentGroup,
-      sessions: expanded ? ordered.map(session => sessionNode(session, descendants, pinned.has(session.id))) : [],
+      sessions: expanded
+        ? ordered.map(session => sessionNode(session, descendants, unread, pinned.has(session.id)))
+        : [],
     })
   }
   return groups
@@ -302,12 +314,14 @@ export function deriveGroups(
  * @param list - sessions list snapshot.
  * @param archivedSessionIds - registry-global archive set.
  * @param pinnedSessionIds - registry-global pin set (leading rows).
+ * @param unread - unread rows of the reading ledger; absent while no session-reading plugin is composed.
  * @returns flat rows in render order.
  */
 export function deriveFlat(
   list: SessionListState,
   archivedSessionIds: readonly SessionId[],
   pinnedSessionIds: readonly SessionId[] = [],
+  unread?: SessionReadingUnreadRows,
 ): SessionNode[] {
   const archived = new Set(archivedSessionIds)
   const pinned = new Set(pinnedSessionIds)
@@ -320,7 +334,7 @@ export function deriveFlat(
   }
   rows.sort(byRecency)
   const ordered = partitionPinned(rows, pinned)
-  return ordered.map(session => sessionNode(session, descendants, pinned.has(session.id)))
+  return ordered.map(session => sessionNode(session, descendants, unread, pinned.has(session.id)))
 }
 
 /** Relative-time bucket of a session row's trailing label. */
@@ -342,6 +356,7 @@ export interface RelativeTime {
  * @param archivedSessionIds - registry-global archive set (members never match).
  * @param content - ranked Host content-search page.
  * @param limit - protocol-owned maximum merged row count.
+ * @param unread - unread rows of the reading ledger; absent while no session-reading plugin is composed.
  * @returns bounded deduplicated flat rows and a refine-query hint bit.
  */
 export function deriveSearchResults(
@@ -351,6 +366,7 @@ export function deriveSearchResults(
   archivedSessionIds: readonly SessionId[],
   content: { items: readonly SessionSearchResultItem[]; hasMore: boolean },
   limit: number,
+  unread?: SessionReadingUnreadRows,
 ): SearchResultSet {
   const q = query.trim().toLowerCase()
   if (q === '') return { items: [], hasMore: false }
@@ -410,7 +426,8 @@ export function deriveSearchResults(
         ...(summary.pendingInteraction === undefined
           ? {}
           : { pendingInteraction: summary.pendingInteraction }),
-        completed: summary.completed === true,
+        unread: unread?.[summary.id] !== undefined,
+        unreadFailed: unread?.[summary.id]?.failed === true,
         ...match === undefined ? {} : { snippet: match.snippet },
       }
     }),

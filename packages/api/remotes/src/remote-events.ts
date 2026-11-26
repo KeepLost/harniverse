@@ -28,6 +28,7 @@ export const API_REMOTE_FORWARDED_EVENTS = [
   'mcpManagement/fleet-changed',
   'peer/paired',
   'peer/removed',
+  'sessionReading/changed',
   'settings/document-updated',
   'settings/exposure-changed',
   'web/providers-changed',

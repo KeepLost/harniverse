@@ -368,6 +368,14 @@
     - id: client-runtime
       name: '@deepseek-ai/dsh-client-runtime'
 
+    # Per-session reading memory shared by every browser of this Host: the
+    # node half keeps the ledger fed by durable turn settlements and serves
+    # the sessionReading Remote; the browser half publishes it as the root
+    # hook behind the session rows' unread marker and acknowledges what the
+    # reader actually saw.
+    - id: session-reading
+      name: '@deepseek-ai/dsh-client-session-reading'
+
     - id: cordis-client-runner
       name: '@deepseek-ai/dsh-cordis-client-runner'
 

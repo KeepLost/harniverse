@@ -12,6 +12,7 @@ import capabilityManagementRemote from '@deepseek-ai/dsh-host-capability-managem
 import messageFeedbackRemote from '@deepseek-ai/dsh-message-feedback/remote'
 import sessionReferencesRemote from '@deepseek-ai/dsh-session-reference/remote'
 import schedulerRemote from '@deepseek-ai/dsh-scheduler/remote'
+import sessionReadingRemote from '@deepseek-ai/dsh-client-session-reading/remote'
 import governorRemote from '@deepseek-ai/dsh-governor/remote'
 import queueRemote from '@deepseek-ai/dsh-queue/remote'
 import peerHostRemote from '@deepseek-ai/dsh-peer-host/remote'
@@ -85,6 +86,7 @@ export type {} from '@deepseek-ai/dsh-host-skin-library/remote'
 export type {} from '@deepseek-ai/dsh-host-capability-management/remote'
 export type {} from '@deepseek-ai/dsh-message-feedback/remote'
 export type {} from '@deepseek-ai/dsh-session-reference/remote'
+export type {} from '@deepseek-ai/dsh-client-session-reading/remote'
 export type {} from '@deepseek-ai/dsh-workspace-file-write/remote'
 export type {} from '@deepseek-ai/dsh-chat-manager/remote'
 // The forwarded-event allowlist's selection seat: without it in the consumer's
@@ -227,6 +229,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       messageFeedbackRemote,
       sessionReferencesRemote,
       schedulerRemote,
+      sessionReadingRemote,
       governorRemote,
       queueRemote,
       remoteHostsRemote,

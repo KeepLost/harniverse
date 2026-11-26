@@ -25,6 +25,9 @@
       "path": "../runtime"
     },
     {
+      "path": "../session-reading/tsconfig.client.json"
+    },
+    {
       "path": "../ui-sidebar"
     },
     {

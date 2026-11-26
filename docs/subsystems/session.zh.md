@@ -755,6 +755,34 @@ Types: [Agent](core.md) · [CommandId](commands.md)
 
 Source: [`packages/context/context-reset/src/index.ts:79`](../../packages/context/context-reset/src/index.ts)
 
+<a id="ctxsessionreading--sessionreadingservice"></a>
+
+### `ctx.sessionReading` — `SessionReadingService`
+
+Reading ledger behind `ctx.sessionReading`.
+
+```ts cordis-catalog
+/**
+ * Read every record the Host holds.
+ * @returns frozen copies in first-settlement order.
+ */
+@Remote({ requiredCapability: 'harniverse.observe' }) list(): Promise<SessionReadingListValue>
+
+/**
+ * Apply one reader action. `read` acknowledges every completed turn and
+ * lowers a manual mark; `unread` raises the manual mark. A session already
+ * carrying the requested state is returned unchanged and announces nothing.
+ * @param sessionId - session the action addresses.
+ * @param action - reader action.
+ * @returns the stored record, or absence when the session holds none and `read` asked for no change.
+ */
+@Remote({ requiredCapability: 'harniverse.operate' }) mark(sessionId: SessionId, action: SessionReadingAction): Promise<SessionReadingMarkValue>
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/client/session-reading/src/index.ts:59`](../../packages/client/session-reading/src/index.ts)
+
 <a id="ctxsessions--sessionstore"></a>
 
 ### `ctx.sessions` — `SessionStore`
@@ -1089,4 +1117,25 @@ One archival import settled durably. The session is persisted but not attached i
 Types: [SessionHeader](persistence.md)
 
 Source: [`packages/session/session-import/src/types.ts:72`](../../packages/session/session-import/src/types.ts)
+
+<a id="sessionreading-events"></a>
+
+### `sessionReading/*` events
+
+<a id="sessionreadingchanged--emit"></a>
+
+#### `sessionReading/changed` — emit
+
+A reading record was added or changed. The payload is empty: consumers refetch `sessionReading.list`, which stays the authoritative ledger.
+
+```ts cordis-catalog
+/**
+ * A reading record was added or changed. The payload is empty: consumers
+ * refetch `sessionReading.list`, which stays the authoritative ledger.
+ * @mode emit
+ */
+'sessionReading/changed'(): void
+```
+
+Source: [`packages/client/session-reading/src/types.ts:48`](../../packages/client/session-reading/src/types.ts)
 <!-- END GENERATED cordis-surface -->

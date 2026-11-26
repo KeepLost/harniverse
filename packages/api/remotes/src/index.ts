@@ -16,6 +16,7 @@ import type {} from '@deepseek-ai/dsh-mcp-user-config/types'
 import type {} from '@deepseek-ai/dsh-settings/types'
 import type {} from '@deepseek-ai/dsh-peer-host/types'
 import type {} from '@deepseek-ai/dsh-web/types'
+import type {} from '@deepseek-ai/dsh-client-session-reading/types'
 
 export {
   ApiRemoteSessionNotFound,

@@ -61,6 +61,10 @@
     { "path": "./packages/client/modules" },
     { "path": "./packages/client/hmr" },
     { "path": "./packages/client/connection/tsconfig.client.json" },
+    // Reading memory for the session rows: a split package whose Host leaf
+    // serves the sessionReading Remote (Host aggregate) and whose browser
+    // leaf publishes the optional useSessionReading root hook (this program).
+    { "path": "./packages/client/session-reading/tsconfig.client.json" },
     { "path": "./packages/typert/registry" },
     { "path": "./packages/api/gateway/tsconfig.client.json" },
     { "path": "./packages/api/remotes/tsconfig.client.json" },

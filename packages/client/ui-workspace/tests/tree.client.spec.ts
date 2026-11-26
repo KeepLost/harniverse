@@ -95,20 +95,27 @@ describe('deriveGroups', () => {
     expect(strayGroups.map(group => group.key)).toEqual(['first'])
   })
 
-  it('projects the completion reminder into session and search rows (absent = false)', () => {
-    const done = { ...summary('done', 3), completed: true }
-    const plain = summary('plain', 2)
-    const sessions = list(done, plain)
-    const groups = deriveGroups(
-      sessions, [workspace('first', ['done', 'plain'])], noArchive, noPin, view(['first']),
-    )
-    const doneNode = groups[0]!.sessions.find(session => session.id === done.id)!
-    const plainNode = groups[0]!.sessions.find(session => session.id === plain.id)!
-    expect(doneNode.completed).toBe(true)
-    expect(plainNode.completed).toBe(false)
-    expect(deriveFlat(sessions, noArchive).find(node => node.id === done.id)!.completed).toBe(true)
-    const search = deriveSearchResults(sessions, [workspace('first', ['done', 'plain'])], 'done', noArchive, { items: [], hasMore: false }, 10)
-    expect(search.items[0]?.completed).toBe(true)
+  it('projects the reading ledger into session and search rows (absent = read)', () => {
+    const done = summary('done', 3)
+    const broken = summary('broken', 2)
+    const plain = summary('plain', 1)
+    const unread = { [sid('done')]: { failed: false }, [sid('broken')]: { failed: true } }
+    const sessions = list(done, broken, plain)
+    const workspaces = [workspace('first', ['done', 'broken', 'plain'])]
+    const marks = (node: { unread: boolean; unreadFailed: boolean }): [boolean, boolean] => [node.unread, node.unreadFailed]
+    expect(deriveGroups(sessions, workspaces, noArchive, noPin, view(['first']), unread)[0]!.sessions.map(marks))
+      .toEqual([[true, false], [true, true], [false, false]])
+    expect(deriveFlat(sessions, noArchive, noPin, unread).map(marks))
+      .toEqual([[true, false], [true, true], [false, false]])
+    // "plain" matches neither an "o" nor "done": only the two unread rows surface.
+    expect(deriveSearchResults(sessions, workspaces, 'o', noArchive, { items: [], hasMore: false }, 10, unread).items.map(marks))
+      .toEqual([[true, false], [true, true]])
+    // Without a ledger every row reads as up to date.
+    expect(deriveGroups(sessions, workspaces, noArchive, noPin, view(['first']))[0]!.sessions.map(marks))
+      .toEqual([[false, false], [false, false], [false, false]])
+    expect(deriveFlat(sessions, noArchive).map(marks)).toEqual([[false, false], [false, false], [false, false]])
+    expect(deriveSearchResults(sessions, workspaces, 'done', noArchive, { items: [], hasMore: false }, 10).items.map(marks))
+      .toEqual([[false, false]])
   })
 
   it('hides subagent-origin sessions without hiding ordinary forks', () => {
@@ -371,7 +378,8 @@ describe('deriveSearchResults', () => {
           running: false,
           runningSubagentCount: 0,
           pendingInteraction: 'plan-review',
-          completed: false,
+          unread: false,
+          unreadFailed: false,
           snippet: 'title session body excerpt',
         },
         {
@@ -380,7 +388,8 @@ describe('deriveSearchResults', () => {
           workspace: 'Needle Workspace',
           running: false,
           runningSubagentCount: 0,
-          completed: false,
+          unread: false,
+          unreadFailed: false,
         },
         {
           id: contentHit.id,
@@ -388,7 +397,8 @@ describe('deriveSearchResults', () => {
           workspace: 'c',
           running: false,
           runningSubagentCount: 0,
-          completed: false,
+          unread: false,
+          unreadFailed: false,
           snippet: 'body needle excerpt',
         },
       ],

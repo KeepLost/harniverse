@@ -17,6 +17,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../client/session-reading/tsconfig.host.json"
+    },
+    {
       "path": "../../core/agent"
     },
     {

@@ -2,14 +2,14 @@
  * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
  * time->ellipsis, action buttons) are CSS-only. Row ... menus are visual-only
- * except workspace Rename/Delete and session Rename/Fork/Archive; the session
- * and workspace hover cards are suppressed while a menu is open.
+ * except workspace Rename/Delete and session Rename/Fork/reading mark/Archive;
+ * the session and workspace hover cards are suppressed while a menu is open.
  */
 import { useState } from 'react'
 import clsx from 'clsx'
 import {
-  HoverCard, IconArchiveOutline20, IconBranchOutline16, IconEditOutline16,
-  IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPinOutline16,
+  HoverCard, IconArchiveOutline20, IconBranchOutline16, IconCheckOutline16, IconEditOutline16,
+  IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconNewChatOutline16, IconPinOutline16,
   IconPlusOutline16, IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -219,10 +219,10 @@ interface SessionStatus {
 
 /**
  * Session status presentation; pending interaction is primary and live activity
- * outranks completion reminders.
+ * outranks the unread marker, which returns once no descendant is running.
  */
 function sessionStatuses(
-  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'completed'>,
+  node: Pick<SessionNode, 'pendingInteraction' | 'running' | 'runningSubagentCount' | 'unread' | 'unreadFailed'>,
   t: RowTranslate,
 ): readonly [SessionStatus, ...SessionStatus[]] {
   const subagents: SessionStatus | undefined = node.runningSubagentCount === 0
@@ -257,7 +257,11 @@ function sessionStatuses(
     return subagents === undefined ? [primary] : [primary, subagents]
   }
   if (subagents !== undefined) return [subagents]
-  if (node.completed) return [{ state: 'done', label: t('status.completed') }]
+  if (node.unread) {
+    return [node.unreadFailed
+      ? { state: 'error', label: t('status.failed') }
+      : { state: 'done', label: t('status.unread') }]
+  }
   return [{ state: 'done', label: t('status.idle') }]
 }
 
@@ -321,7 +325,7 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
     >
       <span className={css.searchResultHeading}>
         <span className={css.slot}>
-          {(primaryStatus.state !== 'done' || result.completed) && (
+          {(primaryStatus.state !== 'done' || result.unread) && (
             <SessionStatusDots statuses={statuses} />
           )}
         </span>
@@ -346,13 +350,16 @@ export function SearchResultItem({ result, currentId, onOpen, t }: {
  * @param props.onOpen - open a session by id.
  * @param props.onRename - open the session rename dialog (id + current title).
  * @param props.onFork - fork a session at its last completed turn.
+ * @param props.onReadingToggle - toggle the session's reading mark; absent on surfaces with no reading seam.
  * @param props.onArchive - archive a session by id.
  * @param props.drag - optional draggable-row wiring.
  * @param props.flat - omit the empty status slot in the hierarchy-free flat list.
  * @param props.t - the browser root's locale seat.
  * @returns the session row.
  */
-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onPinToggle, drag, flat = false, t }: {
+export function SessionNodeItem({
+  node, currentId, now, onOpen, onRename, onFork, onReadingToggle, onArchive, onPinToggle, drag, flat = false, t,
+}: {
   node: SessionNode
   currentId: string | undefined
   now: number
@@ -361,6 +368,11 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   onRename: (id: SessionNode['id'], currentTitle: string) => void
   /** Fork a session at its last completed turn (row menu action). */
   onFork: (id: SessionNode['id']) => void
+  /**
+   * Toggle the reading mark (row menu action). `unread` reports the row's
+   * current state. Absent on surfaces with no reading seam.
+   */
+  onReadingToggle?: (id: SessionNode['id'], unread: boolean) => void
   /** Archive this session (row menu action; a running row opens the stop-and-archive confirmation). */
   onArchive: (id: SessionNode['id']) => void
   /**
@@ -379,7 +391,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const selected = node.id === currentId
   const statuses = sessionStatuses(node, t)
   const primaryStatus = statuses[0]
-  const showStatus = primaryStatus.state !== 'done' || row.completed
+  const showStatus = primaryStatus.state !== 'done' || row.unread
   const [menuOpen, setMenuOpen] = useState(false)
   // Archive is only offered for an idle row. The Host repeats the complete
   // activity check, including queue and interaction state, at commit time.
@@ -387,6 +399,11 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const sessionMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
+    ...(onReadingToggle === undefined
+      ? []
+      : [row.unread
+        ? { id: 'reading', label: t('menu.markRead'), icon: <IconCheckOutline16 /> }
+        : { id: 'reading', label: t('menu.markUnread'), icon: <IconNewChatOutline16 /> }]),
     ...(onPinToggle === undefined
       ? []
       : [{ id: 'pin', label: node.pinned ? t('menu.unpinSession') : t('menu.pinSession'), icon: <IconPinOutline16 /> }]),
@@ -431,8 +448,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
         }}
     >
       {/* Pending interaction and own or descendant activity outrank the
-          finished-but-unviewed reminder, which returns after activity stops
-          and is cleared by opening the session. */}
+          unread marker, which returns after activity stops. */}
       {(!flat || showStatus) && (
         <span className={css.slot}>
           {showStatus && <SessionStatusDots statuses={statuses} />}
@@ -454,6 +470,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
               setMenuOpen(false)
               if (id === 'rename') onRename(node.id, row.title)
               if (id === 'fork') onFork(node.id)
+              if (id === 'reading') onReadingToggle?.(node.id, row.unread)
               if (id === 'pin') onPinToggle?.(node.id, node.pinned)
               if (id === 'archive') onArchive(node.id)
             }}
