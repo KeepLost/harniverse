@@ -46,11 +46,11 @@ export class JsonRpcPeer {
     const stream = ndJsonStream(io.output, io.input)
     this.writer = stream.writable.getWriter()
     this.reader = stream.readable.getReader()
-    // The output side dying takes the agent's input with it. A write already
-    // in flight may still settle, so the stream's own failure is what breaks
-    // the connection.
-    void this.writer.closed.then(undefined, (error: unknown) => {
-      this.break(new AcpError('transport', `the agent connection failed: ${describe(error)}`, { cause: error }))
+    // The output's end takes the agent's input with it. A write that was in
+    // flight may still settle, so pending requests end on the transport's own
+    // signal rather than on the write.
+    void io.outputClosed.then(() => {
+      this.break(new AcpError('transport', 'the agent connection failed: the output stream closed'))
     })
     void this.read()
   }

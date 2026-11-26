@@ -16,12 +16,18 @@ export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 /** Default POSIX grace between SIGTERM and SIGKILL on dispose. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
-/** The two byte streams one ACP connection speaks over. */
+/** The byte streams one ACP connection speaks over, and the end of its output. */
 export interface AcpIo {
   /** Bytes this client writes to the agent. */
   readonly output: WritableStream<Uint8Array>
   /** Bytes this client reads from the agent. */
   readonly input: ReadableStream<Uint8Array>
+  /**
+   * Settles once the output stream closed or failed. A write that was in
+   * flight when that happened may still settle, so the peer ends pending
+   * requests on this signal rather than on the write.
+   */
+  readonly outputClosed: Promise<void>
 }
 
 /** A spawned agent process with the ways to observe and end it. */
@@ -108,6 +114,12 @@ export function spawnAcpChild(options: SpawnAcpChildOptions): AcpChild {
     throw new Error('acp-client: the subprocess implementation dropped a piped protocol stream')
   }
   /* v8 ignore stop */
+  // The output's end is reported from the stream itself: a write queued when
+  // the stream dies can settle normally on some Node releases.
+  const outputClosed = Promise.withResolvers<void>()
+  const closeOutput = (): void => { outputClosed.resolve() }
+  child.stdin.once('close', closeOutput)
+  child.stdin.once('error', closeOutput)
   // A failed start surfaces as `done` rejecting; a clean exit must never
   // settle `failed`, so the success arm parks forever.
   const failed: Promise<never> = child.done.then(
@@ -123,6 +135,7 @@ export function spawnAcpChild(options: SpawnAcpChildOptions): AcpChild {
     io: {
       output: NodeWritable.toWeb(child.stdin) as WritableStream<Uint8Array>,
       input: NodeReadable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+      outputClosed: outputClosed.promise,
     },
     failed,
     exited: child.done.catch(() => ({ exitCode: null, signal: null })),

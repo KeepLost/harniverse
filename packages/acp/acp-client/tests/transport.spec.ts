@@ -62,6 +62,21 @@ describe('disposeAcpChild', () => {
   })
 })
 
+/** Whether the promise settles within two seconds. */
+async function settlesWithin(promise: Promise<void>): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => { resolve(false) }, 2_000)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 describe('spawnAcpChild', () => {
   const spawnReal = (source: string) => spawnAcpChild({
     definition: { command: process.execPath, args: ['--input-type=module', '--eval', source] },
@@ -77,6 +92,19 @@ describe('spawnAcpChild', () => {
     expect(child.dispose()).toBe(first)
     await first
     expect(await child.exited).toEqual({ exitCode: 7, signal: null })
+  })
+
+  it('reports the output ending, by a broken pipe or by the disposal ladder', async () => {
+    const broken = spawnReal('process.stdin.resume(); process.stdin.on("end", () => process.exit(0))')
+    const ended = settlesWithin(broken.io.outputClosed)
+    await broken.io.output.getWriter().abort()
+    expect(await ended).toBe(true)
+    await broken.dispose()
+
+    const disposed = spawnReal('process.stdin.resume(); process.stdin.on("end", () => process.exit(0))')
+    const ladder = settlesWithin(disposed.io.outputClosed)
+    await disposed.dispose()
+    expect(await ladder).toBe(true)
   })
 
   it('rejects failed once the process could not start', async () => {

@@ -22,9 +22,12 @@ function wire() {
   // A destroyed stream reports its error to listeners only; the client observes the failure itself.
   toAgent.on('error', () => {})
   toClient.on('error', () => {})
+  const outputClosed = Promise.withResolvers<undefined>()
+  toAgent.once('close', () => { outputClosed.resolve(undefined) })
   const io: AcpIo = {
     output: NodeWritable.toWeb(toAgent) as WritableStream<Uint8Array>,
     input: NodeReadable.toWeb(toClient) as ReadableStream<Uint8Array>,
+    outputClosed: outputClosed.promise,
   }
   const received: Line[] = []
   const waiters: (() => void)[] = []
@@ -202,12 +205,13 @@ describe('JsonRpcPeer', () => {
     jsonRpc.close()
   })
 
-  it('fails a request whose write fails, and contains a failure to answer a failed request', async () => {
+  it('fails a request whose output dies, and contains a failure to answer a failed request', async () => {
     const { w, jsonRpc } = peer()
     const pending = jsonRpc.request('x', {})
     const failed = pending.catch((error: unknown) => error as AcpError)
+    // The output dies with the write still queued and the input still open.
     w.failOutput(new Error('out broke'))
-    expect(await failed).toMatchObject({ kind: 'transport', message: 'the agent connection failed: out broke' })
+    expect(await failed).toMatchObject({ kind: 'transport', message: 'the agent connection failed: the output stream closed' })
     await jsonRpc.closed
 
     let asked = 0
