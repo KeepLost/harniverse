@@ -16,7 +16,7 @@ import type { TypertContext, TypertLookup } from '@deepseek-ai/dsh-typert-protoc
 import type { StepDriverDefinition } from './machine.ts'
 import type { Agent, AgentOptions } from './runtime-types.ts'
 
-export * from './machine.ts'
+export type { AgentHost, StepDriver, StepDriverDefinition, StepEndReason, StepPosition } from './machine.ts'
 export * from './runtime-types.ts'
 export * from './types.ts'
 export * from './inbox.ts'

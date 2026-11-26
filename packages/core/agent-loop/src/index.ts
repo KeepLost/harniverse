@@ -8,7 +8,8 @@
 import { Context, FiberState, Service } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
 import z from '@deepseek-ai/schemastery'
-import { AgentMachine, emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import { AgentMachine } from '@deepseek-ai/dsh-agent/machine'
 import type {
   Agent,
   AgentFactory,

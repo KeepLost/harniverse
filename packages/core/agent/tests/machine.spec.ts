@@ -9,13 +9,13 @@ import { createAssistantMessage, createUserMessage, LlmError } from '@deepseek-a
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
-  AgentMachine,
   type AgentHost,
   type PreStepDecision,
   type StepDriver,
   type StepDriverDefinition,
   type StepPosition,
 } from '@deepseek-ai/dsh-agent'
+import { AgentMachine } from '../src/machine.ts'
 
 async function harness(): Promise<Context> {
   const ctx = new Context()

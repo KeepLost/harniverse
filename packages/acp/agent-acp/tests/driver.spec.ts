@@ -4,7 +4,7 @@
  * session log carries what the model loop would have written.
  */
 import { describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -292,7 +292,8 @@ describe('the working directory', () => {
     const h = await harness([{ echoCwd: true }])
     try {
       const agent = await run(h, 'where')
-      expect(textOf(core(agent).find(event => event.type === 'assistant/message'))).toBe(`${h.dir}|${h.dir}`)
+      // macOS resolves its temporary directory through a symlink: the child's cwd is the real path.
+      expect(textOf(core(agent).find(event => event.type === 'assistant/message'))).toBe(`${realpathSync(h.dir)}|${h.dir}`)
     } finally {
       await h.ctx.fiber.dispose()
       rmSync(h.dir, { recursive: true, force: true })
