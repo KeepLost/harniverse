@@ -2475,7 +2475,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async update(id: string, update: ScheduleUpdate, by?: SessionId): Promise<ScheduleRecord | undefined>',
-        description: 'Update editable fields of one record. A rule patch recomputes the next due moment from now and re-arms the timer; a finished record rejects rescheduling.',
+        description: 'Update editable fields of one record. A rule patch recomputes the next due moment from now and re-arms the timer; resuming moves the next due moment to the first occurrence after now and finishes a record with none left; a finished record rejects rescheduling.',
         parameters: [{ name: 'id', description: 'schedule identity.' }, { name: 'update', description: 'prompt, status, and/or rule patch.' }, { name: 'by', description: 'calling session allowed to edit; omitted for host authority.' }],
         returns: 'the updated record, or `undefined` when absent or not owned.',
       },
@@ -2842,6 +2842,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read one full event plus a bounded raw-log context window.',
         parameters: [{ name: 'request', description: 'target session/seq and context sizes.' }, { name: 'signal', description: 'optional cancellation for persisted source resolution.' }],
         returns: 'cloned target and neighboring events.',
+      },
+    ],
+  },
+  {
+    key: 'sessionReading',
+    summary: 'Reading ledger behind `ctx.sessionReading`.',
+    description: 'Reading ledger behind `ctx.sessionReading`.',
+    methods: [
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.observe\' }) list(): Promise<SessionReadingListValue>',
+        description: 'Read every record the Host holds.',
+        parameters: [],
+        returns: 'frozen copies in first-settlement order.',
+      },
+      {
+        signature: '@Remote({ requiredCapability: \'harniverse.operate\' }) mark(sessionId: SessionId, action: SessionReadingAction): Promise<SessionReadingMarkValue>',
+        description: 'Apply one reader action. `read` acknowledges every completed turn and lowers a manual mark; `unread` raises the manual mark. A session already carrying the requested state is returned unchanged and announces nothing.',
+        parameters: [{ name: 'sessionId', description: 'session the action addresses.' }, { name: 'action', description: 'reader action.' }],
+        returns: 'the stored record, or absence when the session holds none and `read` asked for no change.',
       },
     ],
   },
@@ -4671,6 +4690,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'header', description: 'the imported archive\'s immutable header.' }],
   },
   {
+    name: 'sessionReading/changed',
+    mode: 'emit',
+    signature: '\'sessionReading/changed\'(): void',
+    summary: 'A reading record was added or changed.',
+    description: 'A reading record was added or changed. The payload is empty: consumers refetch `sessionReading.list`, which stays the authoritative ledger.',
+    parameters: [],
+  },
+  {
     name: 'settings/description-changed',
     mode: 'emit',
     signature: '\'settings/description-changed\'(revision: number): void',
@@ -6415,12 +6442,44 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
+    name: 'McpConnectionOAuth',
+    declaration: 'export interface McpConnectionOAuth {\n    readonly authorizationTimeoutMs: number;\n    status(): McpOAuthAuthorizationState | undefined;\n    createFlow(): McpOAuthFlow;\n    signOut(): Promise<void>;\n    resume(): void;\n}',
+  },
+  {
     name: 'McpConnectionState',
-    declaration: 'export type McpConnectionState = \'connecting\' | \'connected\' | \'reconnecting\' | \'exhausted\' | \'stopped\' | \'disposed\';',
+    declaration: 'export type McpConnectionState = \'connecting\' | \'connected\' | \'reconnecting\' | \'waiting-authorization\' | \'exhausted\' | \'stopped\' | \'disposed\';',
   },
   {
     name: 'McpConnectionStatus',
-    declaration: 'export interface McpConnectionStatus {\n    state: McpConnectionState;\n    connectedAtMs?: number;\n    failedAttempts: number;\n    maxAttempts: number;\n    lastErrorKind?: string;\n}',
+    declaration: 'export interface McpConnectionStatus {\n    state: McpConnectionState;\n    authorization?: McpOAuthAuthorizationState;\n    connectedAtMs?: number;\n    failedAttempts: number;\n    maxAttempts: number;\n    lastErrorKind?: string;\n}',
+  },
+  {
+    name: 'McpOAuthAuthorizationState',
+    declaration: 'export type McpOAuthAuthorizationState = {\n    readonly state: \'authorized\';\n    readonly expiresAtMs?: number;\n} | {\n    readonly state: \'waiting-authorization\';\n    readonly reason: McpAuthorizationReason;\n};',
+  },
+  {
+    name: 'McpOAuthBinding',
+    declaration: 'export interface McpOAuthBinding {\n    serverUrl: string;\n    clientId?: string;\n    scope?: string;\n}',
+  },
+  {
+    name: 'McpOAuthCredentialStore',
+    declaration: 'export interface McpOAuthCredentialStore {\n    resolve(ref: string): Promise<{\n        readonly value: string;\n    } | undefined>;\n    set(ref: string, value: string): Promise<void>;\n    unset(ref: string): Promise<void>;\n}',
+  },
+  {
+    name: 'McpOAuthFlow',
+    declaration: 'export class McpOAuthFlow {\n    constructor(private readonly deps: McpOAuthFlowDeps, private readonly send: typeof fetch = fetch);\n    async begin(input: {\n        redirectUri: string;\n        state: string;\n    }): Promise<{\n        authorizationUrl: string;\n    }>;\n    async exchange(input: {\n        code: string;\n        iss: string | undefined;\n    }): Promise<void>;\n    async commit(): Promise<void>;\n    dispose(): void;\n}',
+  },
+  {
+    name: 'McpOAuthFlowDeps',
+    declaration: 'export interface McpOAuthFlowDeps {\n    readonly config: StreamableHttpConfig;\n    readonly options: OAuthConfig;\n    readonly endpoint: URL;\n    readonly binding: McpOAuthBinding;\n    readonly grants: McpOAuthGrantStore;\n    readonly retire: () => void;\n}',
+  },
+  {
+    name: 'McpOAuthGrant',
+    declaration: 'export type McpOAuthGrant = z.infer<typeof GrantSchema>;',
+  },
+  {
+    name: 'McpOAuthGrantStore',
+    declaration: 'export class McpOAuthGrantStore {\n    readonly ref: string;\n    constructor(private readonly store: McpOAuthCredentialStore | undefined, serverKey: string);\n    async read(binding: McpOAuthBinding): Promise<McpOAuthGrant>;\n    async write(grant: McpOAuthGrant): Promise<void>;\n    async clear(): Promise<void>;\n    requireStore(): McpOAuthCredentialStore;\n}',
   },
   {
     name: 'McpResourceProvider',
@@ -6617,6 +6676,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'NotificationTurnReason',
     declaration: 'export type NotificationTurnReason = {\n    kind: \'completed\';\n} | {\n    kind: \'aborted\';\n    cause: \'user\' | \'parent\' | \'hook\' | \'disposed\' | \'legacy\';\n} | {\n    kind: \'blocked\';\n} | {\n    kind: \'error\';\n    error: {\n        code: string;\n    };\n} | {\n    kind: \'max-tokens\';\n} | {\n    kind: \'interrupted\';\n} | {\n    kind: \'unknown\';\n};',
+  },
+  {
+    name: 'OAuthConfig',
+    declaration: 'export interface OAuthConfig {\n    clientId?: string;\n    scope?: string;\n    requestTimeoutMs: number;\n    authorizationTimeoutMs: number;\n}',
+  },
+  {
+    name: 'OAuthInput',
+    declaration: 'export type OAuthInput = true | {\n    clientId?: string;\n    scope?: string;\n    requestTimeoutMs?: number;\n    authorizationTimeoutMs?: number;\n};',
   },
   {
     name: 'ObjectJsonSchema',
@@ -7511,6 +7578,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionRawEventPageRequest {\n    readonly beforeSeq?: number;\n    readonly maxEvents: number;\n}',
   },
   {
+    name: 'SessionReadingAction',
+    declaration: 'export type SessionReadingAction = \'read\' | \'unread\';',
+  },
+  {
+    name: 'SessionReadingListValue',
+    declaration: 'export interface SessionReadingListValue {\n    readonly records: readonly SessionReadingRecord[];\n}',
+  },
+  {
+    name: 'SessionReadingMarkValue',
+    declaration: 'export interface SessionReadingMarkValue {\n    readonly record: SessionReadingRecord | null;\n}',
+  },
+  {
+    name: 'SessionReadingRecord',
+    declaration: 'export interface SessionReadingRecord {\n    readonly sessionId: SessionId;\n    readonly completedTurn: number;\n    readonly failed: boolean;\n    readonly readTurn: number;\n    readonly manualUnread: boolean;\n}',
+  },
+  {
     name: 'SessionRecord',
     declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
   },
@@ -7664,7 +7747,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SharedConnection',
-    declaration: 'export interface SharedConnection extends ServerContext {\n    readonly serverName: string;\n    ready: Promise<ConnectionOutcome>;\n    connected(): boolean;\n    status(): McpConnectionStatus;\n    toolDescriptors(): readonly McpToolDescriptor[];\n    toolNames(): string[];\n    resourceUris(): string[];\n    resourceTemplates(): string[];\n    callTool(rawName: string, args: Record<string, unknown>, exec: {\n        signal?: AbortSignal;\n    }): Promise<unknown>;\n    subscribe(listener: () => void): () => void;\n    dispose(): Promise<void>;\n}',
+    declaration: 'export interface SharedConnection extends ServerContext {\n    readonly serverName: string;\n    ready: Promise<ConnectionOutcome>;\n    connected(): boolean;\n    status(): McpConnectionStatus;\n    toolDescriptors(): readonly McpToolDescriptor[];\n    toolNames(): string[];\n    resourceUris(): string[];\n    resourceTemplates(): string[];\n    callTool(rawName: string, args: Record<string, unknown>, exec: {\n        signal?: AbortSignal;\n    }): Promise<unknown>;\n    subscribe(listener: () => void): () => void;\n    readonly oauth?: McpConnectionOAuth;\n    dispose(): Promise<void>;\n}',
   },
   {
     name: 'ShellBackendSelection',
@@ -7829,6 +7912,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StoredImageAttachment',
     declaration: 'export interface StoredImageAttachment {\n    ref: ImageAttachmentRef;\n    data: Uint8Array;\n}',
+  },
+  {
+    name: 'StreamableHttpConfig',
+    declaration: 'export interface StreamableHttpConfig {\n    transport: \'streamable-http\';\n    serverName: string;\n    reservationKey?: string | undefined;\n    url: string;\n    headers: Record<string, string>;\n    oauth?: OAuthInput;\n    toolCallTimeoutMs: number;\n    failOnStartupError: boolean;\n    maxInstructionBytes?: number;\n    reconnect?: ReconnectConfig;\n}',
   },
   {
     name: 'StreamChunk',
@@ -8376,7 +8463,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'UserMcpServerConfig',
-    declaration: 'export interface UserMcpServerConfig {\n    id: string;\n    enabled: boolean;\n    transport: \'stdio\' | \'streamable-http\';\n    serverName: string;\n    command?: string;\n    args: string[];\n    env: Record<string, string>;\n    cwd: string;\n    url?: string;\n    headers: Record<string, string>;\n    toolCallTimeoutMs: number;\n    maxInstructionBytes?: number;\n    failOnStartupError: boolean;\n    reconnect: ReconnectConfig;\n}',
+    declaration: 'export interface UserMcpServerConfig {\n    id: string;\n    enabled: boolean;\n    transport: \'stdio\' | \'streamable-http\';\n    serverName: string;\n    command?: string;\n    args: string[];\n    env: Record<string, string>;\n    cwd: string;\n    url?: string;\n    headers: Record<string, string>;\n    oauth?: OAuthInput;\n    toolCallTimeoutMs: number;\n    maxInstructionBytes?: number;\n    failOnStartupError: boolean;\n    reconnect: ReconnectConfig;\n}',
   },
   {
     name: 'UserMessage',

@@ -121,6 +121,9 @@ flowchart LR
   svc_storageDomain["ctx.storageDomain<br/>Domain data facility"]
   pkg_workspace["workspace"]
   svc_messageFeedback["ctx.messageFeedback<br/>Lifecycle-bound message feedback"]
+  pkg_session_reading["session-reading"]
+  svc_sessionReading["ctx.sessionReading<br/>Per-session reading ledger"]
+  pkg_client_ui_workspace["client-ui-workspace"]
   svc_workspaceRegistry["ctx.workspaceRegistry<br/>Workspace entity registry"]
   pkg_workspace_file_write["workspace-file-write"]
   svc_workspaceFileWrite["ctx.workspaceFileWrite<br/>Workbench file-editing Remote"]
@@ -413,6 +416,7 @@ flowchart LR
   pkg_session_projection_cache --> svc_sessionProjectionCache
   pkg_session_query --> svc_sessionQuery
   pkg_session_query_sqlite --> svc_sessionQuery
+  pkg_session_reading --> svc_sessionReading
   pkg_session_reference --> svc_sessionReferenceResolver
   pkg_session_shell --> svc_sessionShell
   pkg_session_title --> svc_sessionTitle
@@ -563,6 +567,7 @@ flowchart LR
   svc_sessionProjections --> pkg_tool_todo
   svc_sessionQuery --> pkg_session_reference
   svc_sessionQuery --> pkg_tool_session_query
+  svc_sessionReading --> pkg_client_ui_workspace
   svc_sessionShell --> pkg_tool_bash
   svc_sessionShell --> pkg_tool_pwsh
   svc_sessions --> pkg_agent
@@ -693,6 +698,7 @@ flowchart LR
 | `ctx.storage` | `seam` | [`storage`](../packages/storage/storage) | [`storage-json`](../packages/storage/storage-json), [`storage-sqlite`](../packages/storage/storage-sqlite) | [`storage-domain`](../packages/storage/storage-domain) | - | Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives. |
 | `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace), [`message-feedback`](../packages/feedback/message-feedback), [`notification-http`](../packages/notification/notification-http) | - | Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state. |
 | `ctx.messageFeedback` | `core` | [`message-feedback`](../packages/feedback/message-feedback) | - | - | - | Owns local per-assistant-message feedback, lifecycle and target validation, per-item compare-and-set, and the Host unary Remote contract without entering Session history or telemetry. |
+| `ctx.sessionReading` | `core` | `session-reading` | - | [`client-ui-workspace`](../packages/client/ui-workspace) | - | Host-memory reading state per session, advanced by durable turn settlement; the unary Remote serves it under harniverse.observe and applies reader marks under harniverse.operate, and the browser consumer publishes it as the optional useSessionReading root hook. |
 | `ctx.workspaceRegistry` | `core` | [`workspace`](../packages/workspace/workspace) | - | `apiproxy` | - | Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections. |
 | `ctx.workspaceFileWrite` | `core` | [`workspace-file-write`](../packages/host/workspace-file-write) | - | [`client-ui-workspace-editor`](../packages/client/ui-workspace-editor) | - | Owns Workspace-scoped editable open, version probe, and version-checked save over ctx.fs behind harniverse.operate, then notifies live sessions of each saved path; the workbench editor occupant reaches it through the gateway. |
 | `ctx.sessionDelivery` | `seam` | [`session-delivery`](../packages/session-query/session-delivery) | [`session-delivery-local`](../packages/session-query/session-delivery-local) | [`tool-session-delivery`](../packages/session-query/tool-session-delivery) | - | The interface acknowledges inbox acceptance only; the local Provider resolves live or persisted ordinary Agents, while the model Consumer never waits for completion or a reply. |

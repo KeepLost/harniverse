@@ -388,6 +388,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns local per-assistant-message feedback, lifecycle and target validation, per-item compare-and-set, and the Host unary Remote contract without entering Session history or telemetry.',
   },
   {
+    key: 'sessionReading',
+    pkg: 'session-reading',
+    title: 'Per-session reading ledger',
+    mode: 'core',
+    consumers: ['client-ui-workspace'],
+    note: 'Host-memory reading state per session, advanced by durable turn settlement; the unary Remote serves it under harniverse.observe and applies reader marks under harniverse.operate, and the browser consumer publishes it as the optional useSessionReading root hook.',
+  },
+  {
     key: 'workspaceRegistry',
     pkg: 'workspace',
     title: 'Workspace entity registry',
