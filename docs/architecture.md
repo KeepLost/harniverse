@@ -43,8 +43,8 @@ Here are some core packages that contribute to the Cordis tree.
 | [`core/session`](subsystems/session.md) | The append-only `SessionEvent` log and in-memory store | `ctx.sessions` |
 | [`core/system-prompt`](subsystems/system-prompt.md) | Prompt-section and tool-schema assembly | `ctx.systemPrompt` |
 | [`core/tools`](subsystems/tools.md) | The scoped tool registry and guarded execution pipeline | `ctx.tools` |
-| [`core/agent`](subsystems/core.md) | The `Agent` interface, live registry, and `agent/*` events | `ctx.agents` |
-| [`core/agent-loop`](subsystems/core.md) | The default driver implementing that interface | `ctx.agentLoop` |
+| [`core/agent`](subsystems/core.md) | The `Agent` interface, the agent machine and step-driver registry, live registry, and `agent/*` events | `ctx.agents` |
+| [`core/agent-loop`](subsystems/core.md) | The lifecycle owner and the default step driver, the model loop | `ctx.agentLoop` |
 | [`core/scope`](subsystems/scope.md) | The per-agent scoped-registration primitive | library, no key |
 | [`llm/llm`](subsystems/llm-streaming.md) | Message and stream vocabulary plus the adapter seam | `ctx.llm` |
 
@@ -60,7 +60,7 @@ The [event map](event-producer-consumer.md) lists every event's producers and co
 
 ## Turn flow
 
-A **step** is one model request plus the tools it calls. A **turn** is zero or more steps: it opens before its first input is claimed and closes once nothing is owed.
+A **step** is one model request plus the tools it calls. A **turn** is zero or more steps: it opens before its first input is claimed and closes once nothing is owed. The machine that owns both lives in `core/agent`; what happens inside a step is a [step driver](subsystems/core.md#step-drivers). The model loop is the default, and a preset can contribute another, such as [`acp/agent-acp`](../packages/acp/agent-acp/README.md) for an external agent.
 
 ```text
 turn/start
@@ -130,5 +130,6 @@ New behavior attaches to a documented extension point. Changing the loop itself 
 | Manage a same-session objective | use `ctx.goals`; continue through `agent/*` |
 | Fork a live session | `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | Scope a registration to one agent | use that agent's `agent.ctx` |
+| Drive an agent with an external engine | contribute a [step driver](subsystems/core.md#step-drivers) through `ctx.agents.registerDriver()` from a preset row; [`acp/agent-acp`](../packages/acp/agent-acp/README.md) does this for an ACP agent |
 
 The [extension cookbook](cookbook/extension-cookbook.md) maps features to capabilities and indexes the step-by-step guides for [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [Chat nodes](cookbook/adding-a-conversation-node.md).

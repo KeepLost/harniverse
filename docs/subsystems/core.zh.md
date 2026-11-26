@@ -13,7 +13,7 @@
 | `session/` | 仅追加的 `SessionEvent` 日志与内存 store——唯一真源（`ctx.sessions`） | [session.md](session.md) |
 | `system-prompt/` | 提示词段落与工具 schema 组装（`ctx.systemPrompt`） | [system-prompt.md](system-prompt.md) |
 | `tools/` | 带作用域的工具注册表与受保护的执行流水线（`ctx.tools`） | [tools.md](tools.md) |
-| `agent/` | `Agent` 接口、实时注册表、发起者作用域与 `agent/*` 事件词汇（`ctx.agents`） | 本页 |
+| `agent/` | `Agent` 接口、agent 机器与步骤驱动器注册表、实时注册表、发起者作用域与 `agent/*` 事件词汇（`ctx.agents`） | 本页 |
 | `agent-loop/` | 实现公开 `Agent` 约定的具体 driver（`ctx.agentLoop`） | 本页 |
 | `scope/` | 注册表与循环用于构建按 agent 作用域的注册原语 | [scope.md](scope.md) |
 
@@ -57,7 +57,7 @@ interface AgentHandle {
 
 ## Agent 句柄
 
-`Agent` 是每个插件（UI、钩子、orchestrator）面向编程的 surface；`ctx.agents.get(id)` 返回它，[发起者作用域](#initiating-agent)携带它。具体实现为 dsh-agent-loop 包内部细节；循环外没有任何组件依赖它。统一的 `send` 方法直接暴露 target 与 wakeup 路由；`followup`、`steer` 与 `inject` 是固定预设的别名方法。
+`Agent` 是每个插件（UI、钩子、orchestrator）面向编程的 surface；`ctx.agents.get(id)` 返回它，[发起者作用域](#initiating-agent)携带它。实现它的 `AgentMachine` 位于 dsh-agent，并运行在一个[步骤驱动器](#step-drivers)之上；模型循环驱动器是 dsh-agent-loop 的包内部细节。统一的 `send` 方法直接暴露 target 与 wakeup 路由；`followup`、`steer` 与 `inject` 是固定预设的别名方法。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -210,6 +210,78 @@ type AgentCancelCause =
 cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有者把同一个对象暴露为仅运行时的 `AbortSignal.reason`；signal 不授予协作监听器任何分类权限。持久 `turn/end` 以 `{ kind: 'aborted', reason: TurnEndCancelCause }` 记录结果，取消原因随终态结果一起持久化；循环只复制声明的字段，而不直接记录调用方的对象——传输层可能扩展该对象，Node 的 fetch 会在其上赋值一个 `stack`。
 
 [事件分类](../architecture.md#events)负责 `agent/*` 生命周期、检查点与 waterfall（瀑布式事件）约定。轮次和步骤边界是持久会话事件，而不是 agent emit。
+
+<a id="step-drivers"></a>
+
+## 步骤驱动器
+
+Source: [`packages/core/agent/src/machine.ts`](../../packages/core/agent/src/machine.ts)
+
+`AgentMachine` 是工厂的每个驱动器都在其上运行的 `Agent`。它拥有收件箱、阶段状态机、取消、维护以及回合：打开回合、领取输入、让 `agent/pre-step` 决定、把进入的消息追加为 `user/message`，并关闭每个步骤与回合。步骤内部发生的事属于 `StepDriver`，由生命周期拥有者在发布之前一次性封存：[`agent-loop`](../../packages/core/agent-loop/README.md) 提供模型循环作为默认驱动器，[`acp/agent-acp`](../../packages/acp/agent-acp/README.md) 通过一行预设提供外部 ACP agent。
+
+```ts type-equiv
+/** How a step can end on its own: the driver owes nothing further for this turn. */
+type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
+```
+
+```ts type-equiv
+/** Where a step sits in the session log, and the signal that cancels its turn. */
+interface StepPosition {
+  readonly turn: number
+  readonly step: number
+  readonly signal: AbortSignal
+}
+```
+
+```ts type-equiv
+/** The machine state one step driver reads and appends to. */
+interface AgentHost {
+  /** The live agent; scope-filtered dispatch and prompt assembly key on it. */
+  readonly agent: Agent
+  readonly id: SessionId
+  readonly options: AgentOptions
+  /** The live session; its log is the durable source of truth. */
+  readonly session: Session
+  readonly inbox: Inbox
+  /** The lifecycle owner's untraced context: registries and services resolve here. */
+  readonly ownerCtx: Context
+  /** The agent-scoped context; its contributions are agent-local. */
+  readonly ctx: Context
+  /** The agent's fused event dispatcher. */
+  readonly dispatch: AgentEventDispatch
+}
+```
+
+```ts type-equiv
+/**
+ * How one agent runs a step. The machine owns turns: it opens them, claims
+ * input, asks `agent/pre-step`, appends the entered messages, and closes each
+ * step and turn. The driver owns what happens inside a step.
+ */
+interface StepDriver<TPrep = unknown> {
+  /**
+   * Prepare a proposed step after its input was claimed and before
+   * `agent/pre-step` decides; the model loop assembles its prompt here.
+   */
+  prepare(position: StepPosition): Promise<TPrep>
+  /**
+   * Run one admitted step.
+   * @param position - where the step sits and what cancels its turn.
+   * @param prep - what {@link prepare} produced for this step.
+   * @param messages - the identified input the machine just appended as this step's `user/message` events.
+   * @returns how the step ended on its own, or `null` when the step owes
+   *   another step this turn (the model loop's pending tool results).
+   */
+  run(position: StepPosition, prep: TPrep, messages: readonly UserMessage[]): Promise<StepEndReason | null>
+}
+```
+
+```ts type-equiv
+/** Builds the step driver of one agent from its machine host. */
+type StepDriverDefinition = (host: AgentHost) => StepDriver
+```
+
+`run` 返回 `null` 的驱动器欠该回合一个步骤，机器以 next-step 输入打开它。`ctx.agents.registerDriver()` 向作用域派生自调用方作用域的每个 agent 贡献一个驱动器，`ctx.agents.driverFor(scope)` 读取最近的贡献，因此预设行指名其驱动器的方式与它指名工具的方式相同。
 
 <a id="initiating-agent"></a>
 
@@ -390,7 +462,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [SessionHeader](persistence.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:299`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:300`](../../packages/core/agent-loop/src/index.ts)
 
 <a id="ctxagentpresets--agentpresets"></a>
 
@@ -651,6 +723,23 @@ registerAdmission(admit: (session: Session) => void): () => void
 assertAdmission(session: Session): void
 
 /**
+ * Contribute the step driver for agents whose scope descends from the
+ * calling context's scope: an agent preset names its driver by composing
+ * such a row. The nearest scope along an agent's parent chain wins.
+ * @param define - builds one agent's driver from its machine host.
+ * @returns the effect-scoped registration disposer.
+ * @throws when the calling scope already contributes a driver.
+ */
+registerDriver(define: StepDriverDefinition): () => void
+
+/**
+ * The step driver an agent's scope chain composes.
+ * @param scope - the agent's scope key, or `undefined` for the global view.
+ * @returns the nearest registered definition, or `undefined` when the chain contributes none.
+ */
+driverFor(scope: ScopeKey | undefined): StepDriverDefinition | undefined
+
+/**
  * Create and publish a new agent through the registered factory.
  * Distinct from {@link register} (which records an already-constructed
  * agent): this constructs the agent and its session. Rejects if no factory is
@@ -771,9 +860,9 @@ list(): Agent[]
 roots(): Agent[]
 ```
 
-Types: [Session](session.md)
+Types: [ScopeKey](scope.md) · [Session](session.md)
 
-Source: [`packages/core/agent/src/index.ts:264`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:274`](../../packages/core/agent/src/index.ts)
 
 <a id="agent-events"></a>
 
@@ -1097,5 +1186,5 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 'agent-loop/config-start-failed'(payload: { sessionId: SessionId; error: unknown }): void
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:184`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:185`](../../packages/core/agent-loop/src/index.ts)
 <!-- END GENERATED cordis-surface -->

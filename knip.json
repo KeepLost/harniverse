@@ -302,6 +302,28 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/acp/acp-client": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/acp/agent-acp": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts",
+        "tests/fake-agent.ts",
+        "tests/fixtures/composition/driver.ts",
+        "tests/fixtures/composition/mock-llm.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/core/tools": {
       "entry": [
         "tests/**/*.spec.ts"

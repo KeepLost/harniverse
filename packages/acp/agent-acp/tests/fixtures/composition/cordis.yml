@@ -1,0 +1,25 @@
+# Test-only composition: ACP mode on the real Loader/app path. The preset
+# roster holds one copy of the shipped template whose command points at the
+# scripted external agent; the driving e2e writes it under `./presets` with the
+# scenario variables filled in. No model-backed agent is configured.
+- id: mock-llm
+  name: './mock-llm.ts'
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: agent-presets
+  name: '@deepseek-ai/dsh-agent-presets'
+  config:
+    default: acp
+    roots:
+      - path: !!js "process.cwd() + '/presets'"
+        trust: system
+    includeUserRoot: false
+
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    agents: []
+    persona: 'Test ACP mode.'
+    workspaceContext: false

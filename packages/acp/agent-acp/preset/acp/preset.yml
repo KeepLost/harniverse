@@ -1,0 +1,3 @@
+name: ACP 模式
+description: 由一个外部 ACP agent 担任主 agent；Harniverse 只作为前端，不提供本项目的工具、技能、提示词与模型。
+order: 5

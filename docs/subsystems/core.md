@@ -13,8 +13,8 @@ A turn flows through the six packages in one loop: the driver in [`agent-loop`](
 | `session/` | The append-only `SessionEvent` log and in-memory store — the single source of truth (`ctx.sessions`) | [session.md](session.md) |
 | `system-prompt/` | Prompt-section and tool-schema assembly (`ctx.systemPrompt`) | [system-prompt.md](system-prompt.md) |
 | `tools/` | The scoped tool registry and guarded execution pipeline (`ctx.tools`) | [tools.md](tools.md) |
-| `agent/` | The `Agent` interface, live registry, initiator scope, and `agent/*` event vocabulary (`ctx.agents`) | this page |
-| `agent-loop/` | The concrete driver implementing the public `Agent` contract (`ctx.agentLoop`) | this page |
+| `agent/` | The `Agent` interface, the agent machine and step-driver registry, live registry, initiator scope, and `agent/*` event vocabulary (`ctx.agents`) | this page |
+| `agent-loop/` | The lifecycle owner and the default step driver, the model loop, behind the public `Agent` contract (`ctx.agentLoop`) | this page |
 | `scope/` | The scoped-registration primitive the registries and loop build per-agent scoping on | [scope.md](scope.md) |
 
 `scope/` is the one non-service package: a dependency-free library (`createScope`/`scopeOf`/`scopeTarget`) that sits below `session/` and `system-prompt/` in the module graph precisely so they can consume it without a cycle. `agent-loop` is the one concrete implementation of the public `Agent` contract and lives here because it is the harness's default product loop; it runs each driver inside `ctx.agents.withInitiator()`. Extension plugins depend on `agent` — including when they need the initiating Agent — and never on `agent-loop` directly, so the loop stays swappable. The default composition that wires this spine into a runnable agent is [`examples/agent-spine-demo`](../../packages/examples/agent-spine-demo/README.md).
@@ -53,7 +53,7 @@ interface AgentHandle {
 
 ## The agent handle
 
-`Agent` is the surface every plugin (UI, hooks, orchestrators) programs against; `ctx.agents.get(id)` returns it, and the [initiator scope](#initiating-agent) carries it. The concrete implementation is package-internal to dsh-agent-loop; nothing outside the loop depends on it. The unified `send` method exposes target and wakeup routing directly; `followup`, `steer`, and `inject` are fixed-preset aliases.
+`Agent` is the surface every plugin (UI, hooks, orchestrators) programs against; `ctx.agents.get(id)` returns it, and the [initiator scope](#initiating-agent) carries it. The `AgentMachine` that implements it lives in dsh-agent and runs on a [step driver](#step-drivers); the model-loop driver is package-internal to dsh-agent-loop; nothing outside the loop depends on it. The unified `send` method exposes target and wakeup routing directly; `followup`, `steer`, and `inject` are fixed-preset aliases.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -206,6 +206,76 @@ type AgentCancelCause =
 The cause is a TypeScript-enforced same-process input. An active cancellation holder exposes that same object as the runtime-only `AbortSignal.reason`; a signal grants cooperating listeners no classification authority. Durable `turn/end` records the outcome as `{ kind: 'aborted', reason: TurnEndCancelCause }`, so the cancel cause lands in the terminal result; the loop copies the declared fields rather than logging the caller's object, which a transport may extend — Node's fetch assigns a `stack` onto it.
 
 The [event taxonomy](../architecture.md#events) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
+
+## Step drivers
+
+Source: [`packages/core/agent/src/machine.ts`](../../packages/core/agent/src/machine.ts)
+
+`AgentMachine` is the `Agent` every driver of the factory runs on. It owns the inbox, the phase machine, cancellation, maintenance, and the turn: it opens the turn, claims the input, lets `agent/pre-step` decide, appends the entered messages as `user/message`, and closes each step and turn. What happens inside a step is a `StepDriver`, sealed once by the lifecycle owner before publication: [`agent-loop`](../../packages/core/agent-loop/README.md) supplies the model loop as the default, and [`acp/agent-acp`](../../packages/acp/agent-acp/README.md) supplies an external ACP agent through a preset row.
+
+```ts type-equiv
+/** How a step can end on its own: the driver owes nothing further for this turn. */
+type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
+```
+
+```ts type-equiv
+/** Where a step sits in the session log, and the signal that cancels its turn. */
+interface StepPosition {
+  readonly turn: number
+  readonly step: number
+  readonly signal: AbortSignal
+}
+```
+
+```ts type-equiv
+/** The machine state one step driver reads and appends to. */
+interface AgentHost {
+  /** The live agent; scope-filtered dispatch and prompt assembly key on it. */
+  readonly agent: Agent
+  readonly id: SessionId
+  readonly options: AgentOptions
+  /** The live session; its log is the durable source of truth. */
+  readonly session: Session
+  readonly inbox: Inbox
+  /** The lifecycle owner's untraced context: registries and services resolve here. */
+  readonly ownerCtx: Context
+  /** The agent-scoped context; its contributions are agent-local. */
+  readonly ctx: Context
+  /** The agent's fused event dispatcher. */
+  readonly dispatch: AgentEventDispatch
+}
+```
+
+```ts type-equiv
+/**
+ * How one agent runs a step. The machine owns turns: it opens them, claims
+ * input, asks `agent/pre-step`, appends the entered messages, and closes each
+ * step and turn. The driver owns what happens inside a step.
+ */
+interface StepDriver<TPrep = unknown> {
+  /**
+   * Prepare a proposed step after its input was claimed and before
+   * `agent/pre-step` decides; the model loop assembles its prompt here.
+   */
+  prepare(position: StepPosition): Promise<TPrep>
+  /**
+   * Run one admitted step.
+   * @param position - where the step sits and what cancels its turn.
+   * @param prep - what {@link prepare} produced for this step.
+   * @param messages - the identified input the machine just appended as this step's `user/message` events.
+   * @returns how the step ended on its own, or `null` when the step owes
+   *   another step this turn (the model loop's pending tool results).
+   */
+  run(position: StepPosition, prep: TPrep, messages: readonly UserMessage[]): Promise<StepEndReason | null>
+}
+```
+
+```ts type-equiv
+/** Builds the step driver of one agent from its machine host. */
+type StepDriverDefinition = (host: AgentHost) => StepDriver
+```
+
+A driver that returns `null` from `run` owes the turn another step, which the machine opens with the next-step input. `ctx.agents.registerDriver()` contributes a driver to every agent whose scope descends from the calling context's scope, and `ctx.agents.driverFor(scope)` reads the nearest contribution, so a preset row names its driver the same way it names a tool.
 
 ## Initiating Agent
 
@@ -382,7 +452,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [SessionHeader](persistence.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:299`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:300`](../../packages/core/agent-loop/src/index.ts)
 
 <a id="ctxagentpresets--agentpresets"></a>
 
@@ -643,6 +713,23 @@ registerAdmission(admit: (session: Session) => void): () => void
 assertAdmission(session: Session): void
 
 /**
+ * Contribute the step driver for agents whose scope descends from the
+ * calling context's scope: an agent preset names its driver by composing
+ * such a row. The nearest scope along an agent's parent chain wins.
+ * @param define - builds one agent's driver from its machine host.
+ * @returns the effect-scoped registration disposer.
+ * @throws when the calling scope already contributes a driver.
+ */
+registerDriver(define: StepDriverDefinition): () => void
+
+/**
+ * The step driver an agent's scope chain composes.
+ * @param scope - the agent's scope key, or `undefined` for the global view.
+ * @returns the nearest registered definition, or `undefined` when the chain contributes none.
+ */
+driverFor(scope: ScopeKey | undefined): StepDriverDefinition | undefined
+
+/**
  * Create and publish a new agent through the registered factory.
  * Distinct from {@link register} (which records an already-constructed
  * agent): this constructs the agent and its session. Rejects if no factory is
@@ -763,9 +850,9 @@ list(): Agent[]
 roots(): Agent[]
 ```
 
-Types: [Session](session.md)
+Types: [ScopeKey](scope.md) · [Session](session.md)
 
-Source: [`packages/core/agent/src/index.ts:264`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:274`](../../packages/core/agent/src/index.ts)
 
 <a id="agent-events"></a>
 
@@ -1089,5 +1176,5 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 'agent-loop/config-start-failed'(payload: { sessionId: SessionId; error: unknown }): void
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:184`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:185`](../../packages/core/agent-loop/src/index.ts)
 <!-- END GENERATED cordis-surface -->

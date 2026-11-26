@@ -12,6 +12,7 @@
     "@deepseek-ai/cordis-plugin-timer": "workspace:^",
     "@deepseek-ai/cosmokit": "workspace:^",
     "@deepseek-ai/dsh-acp": "workspace:^",
+    "@deepseek-ai/dsh-acp-client": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-instructions": "workspace:^",
     "@deepseek-ai/dsh-agent-loop": "workspace:^",

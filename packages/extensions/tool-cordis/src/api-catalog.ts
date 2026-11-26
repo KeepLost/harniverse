@@ -272,6 +272,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'session', description: 'the exact prepared Session, including inherited history.' }],
       },
       {
+        signature: 'registerDriver(define: StepDriverDefinition): () => void',
+        description: 'Contribute the step driver for agents whose scope descends from the calling context\'s scope: an agent preset names its driver by composing such a row. The nearest scope along an agent\'s parent chain wins.',
+        parameters: [{ name: 'define', description: 'builds one agent\'s driver from its machine host.' }],
+        returns: 'the effect-scoped registration disposer.',
+        throws: ['when the calling scope already contributes a driver.'],
+      },
+      {
+        signature: 'driverFor(scope: ScopeKey | undefined): StepDriverDefinition | undefined',
+        description: 'The step driver an agent\'s scope chain composes.',
+        parameters: [{ name: 'scope', description: 'the agent\'s scope key, or `undefined` for the global view.' }],
+        returns: 'the nearest registered definition, or `undefined` when the chain contributes none.',
+      },
+      {
         signature: 'async create(options: CreateAgentOptions): Promise<AgentHandle>',
         description: 'Create and publish a new agent through the registered factory. Distinct from register (which records an already-constructed agent): this constructs the agent and its session. Rejects if no factory is registered or creation/setup fails. The resolved AgentHandle lets the owner tear down exactly this agent.',
         parameters: [{ name: 'options', description: 'shared identity, session seed/metadata, and agent options.' }],
@@ -4990,12 +5003,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type AgentCloseIfIdleResult = \'closed\' | \'busy\' | \'not-found\';',
   },
   {
+    name: 'AgentEventDispatch',
+    declaration: 'export interface AgentEventDispatch {\n    emit<K extends AgentSubjectEvent>(name: K, payload: PayloadRest<K>): void;\n    serial<K extends AgentSubjectEvent>(name: K, payload: PayloadRest<K>): Promise<Awaited<Return<Events[K]>>>;\n    waterfall<K extends AgentSubjectEvent>(name: K, payload: PayloadRest<K>, ...rest: Tail<K>): Return<Events[K]>;\n}',
+  },
+  {
     name: 'AgentFactory',
     declaration: 'export interface AgentFactory {\n    createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
   },
   {
     name: 'AgentHandle',
     declaration: 'export interface AgentHandle {\n    agent: Agent;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'AgentHost',
+    declaration: 'export interface AgentHost {\n    readonly agent: Agent;\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly inbox: Inbox;\n    readonly ownerCtx: Context;\n    readonly ctx: Context;\n    readonly dispatch: AgentEventDispatch;\n}',
   },
   {
     name: 'AgentOptions',
@@ -5020,6 +5041,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentStatusChangedData',
     declaration: 'export interface AgentStatusChangedData {\n    status: \'running\' | \'idle\';\n}',
+  },
+  {
+    name: 'AgentSubjectEvent',
+    declaration: 'export type AgentSubjectEvent = {\n    [K in keyof Events]: Events[K] extends (this: Scoped<Agent>, ...args: infer P) => unknown ? P extends [\n        infer Payload,\n        ...unknown[]\n    ] ? Payload extends {\n        agent: Agent;\n    } ? K : never : never : never;\n}[keyof Events];',
   },
   {
     name: 'ApiApi',
@@ -7896,6 +7921,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SpillSource',
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
+  },
+  {
+    name: 'StepDriver',
+    declaration: 'export interface StepDriver<TPrep = unknown> {\n    prepare(position: StepPosition): Promise<TPrep>;\n    run(position: StepPosition, prep: TPrep, messages: readonly UserMessage[]): Promise<StepEndReason | null>;\n}',
+  },
+  {
+    name: 'StepDriverDefinition',
+    declaration: 'export type StepDriverDefinition = (host: AgentHost) => StepDriver;',
+  },
+  {
+    name: 'StepEndReason',
+    declaration: 'export type StepEndReason = Extract<TurnEndReason, {\n    kind: \'completed\' | \'max-tokens\';\n}>;',
+  },
+  {
+    name: 'StepPosition',
+    declaration: 'export interface StepPosition {\n    readonly turn: number;\n    readonly step: number;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'StorageBackend',

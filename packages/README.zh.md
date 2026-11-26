@@ -54,7 +54,7 @@ npm scope 为 `@deepseek-ai/dsh-*`；Cordis `Service` 子类和函数插件通�
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定 API |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定 API |
 | [`sdk/`](sdk/README.md) | 进程外运行时 SDK：JSON-RPC 协议、TypeScript 客户端和服务器插件 | 产品：稳定 API |
-| [`acp/`](acp/README.md) | 仅面向自动化的 ACP（Agent Client Protocol）服务器 | 产品：稳定 API |
+| [`acp/`](acp/README.md) | Agent Client Protocol：仅面向自动化的服务器、与版本无关的客户端核心，以及 ACP 模式步骤驱动器 | 产品：稳定 API |
 | [`interaction/`](interaction/README.md) | 人机协作平面：批准／交互 seam、权限预设、命令、询问用户的工具 | 产品：稳定 API |
 | [`boot/`](boot/README.md) | 共享的 app bin 启动粘合层 | 产品：稳定 API |
 | [`host/`](host/README.md) | web GUI 宿主半侧：API 网关 + HTTP 路由服务器 | 产品：稳定 API |

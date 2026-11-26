@@ -88,6 +88,47 @@ Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) ·
 
 Source: [`packages/examples/acp-demo/src/index.ts:39`](../packages/examples/acp-demo/src/index.ts)
 
+<a id="deepseek-aidsh-agent-acp"></a>
+
+## `@deepseek-ai/dsh-agent-acp`
+
+Requires: `agents` · `subprocess`
+
+```ts config-catalog
+/** Config: how to start the external agent and how to answer its permission requests. */
+export interface Config {
+  /** Executable that serves the external ACP agent over stdio. */
+  command: string
+  /** Arguments passed to {@link command}. */
+  args: string[]
+  /** Environment variables added on top of the subprocess seam's scrubbed parent environment. */
+  env: Record<string, string>
+  /**
+   * Working directory of the external process and of its session. Must be
+   * non-empty; a relative path resolves against the harness launch directory
+   * at load. When omitted, each session's own workspace is used, and starting
+   * one from a session that has no workspace fails.
+   */
+  cwd?: string
+  /** ACP version requested at the handshake: `1`, the stable protocol, or `2`, the Preview protocol with a v1 fallback. */
+  protocol?: AcpProtocol
+  /**
+   * How to answer the external agent's permission requests: `ask` (default)
+   * routes each one through the approval seam and fails closed without an
+   * answerer; `allow` takes the agent's first allow option; `reject` declines
+   * every request.
+   */
+  permission: AcpPermissionMode
+}
+
+/** How the driver answers the external agent's permission requests. */
+export type AcpPermissionMode = 'ask' | 'allow' | 'reject'
+```
+
+Depends on: [`AcpProtocol`](../packages/acp/acp-client/src/index.ts)
+
+Source: [`packages/acp/agent-acp/src/index.ts:21`](../packages/acp/agent-acp/src/index.ts)
+
 <a id="deepseek-aidsh-agent-default-model"></a>
 
 ## `@deepseek-ai/dsh-agent-default-model`
@@ -166,7 +207,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](subsystems/core.md) · [`SessionId`](subsystems/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:258`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:259`](../packages/core/agent-loop/src/index.ts)
 
 <a id="deepseek-aidsh-agent-presets"></a>
 
@@ -3540,8 +3581,10 @@ export interface Config {
 }
 
 /** Fixed response to child permission requests: reject by default, or select the first allow option. */
-export type PermissionPolicy = 'allow' | 'reject'
+export type PermissionPolicy = AcpPermissionPolicy
 ```
+
+Depends on: [`AcpPermissionPolicy`](../packages/acp/acp-client/src/index.ts)
 
 Source: [`packages/subagent/subagent-acp/src/index.ts:27`](../packages/subagent/subagent-acp/src/index.ts)
 
@@ -5061,6 +5104,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 
 Imported as libraries by other packages; a `cordis.yml` cannot load them.
 
+- `@deepseek-ai/dsh-acp-client` ([`packages/acp/acp-client/src/index.ts`](../packages/acp/acp-client/src/index.ts))
 - `@deepseek-ai/dsh-acp-snapshot` ([`packages/test-support/acp-snapshot/src/index.ts`](../packages/test-support/acp-snapshot/src/index.ts))
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/test-support/agent-loop-testkit/src/index.ts`](../packages/test-support/agent-loop-testkit/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/boot/app-boot/src/index.ts`](../packages/boot/app-boot/src/index.ts))

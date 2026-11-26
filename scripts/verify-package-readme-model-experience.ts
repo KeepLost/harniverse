@@ -48,6 +48,7 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
 const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-file-actions': { kind: 'none', reason: 'The capability proxies caller-captured originals to the platform saver and clipboard; nothing enters a model request.' },
   'packages/client/ui-context-menu': { kind: 'none', reason: 'The popup capability resolves browser-local menu contributions; nothing enters a model request.' },
+  'packages/acp/acp-client': { kind: 'indirect', reason: 'The client core hands normalized protocol facts to its consumers; the consumer that builds an external agent prompt owns what that agent sees.' },
   'packages/util/file-drag': { kind: 'none', reason: 'Pure filename derivation registers nothing model-facing.' },
   'packages/util/workspace-path': { kind: 'none', reason: 'Pure path derivation registers nothing model-facing.' },
   'packages/util/error': { kind: 'indirect', reason: 'The base class only names a failure taxonomy; extending tool-body errors record their { name, code } on tool results.' },
