@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-One-shot peer pairing management app, booted by `dsh peer` (a launcher alias of `--profile peer`). The startup plugin parses the command tree through [dsh-cmdline](../../boot/cmdline/README.md) and provides `ctx.peerStartup`; the runner consumes it, performs one operation against the profile home, and requests process exit.
+One-shot peer pairing management app, booted by `dsh peer` (a launcher alias of `--profile peer`). The startup plugin parses the command tree through [dsh-cmdline](../../boot/cmdline/README.md) and provides `ctx.peerStartup`; the runner consumes it, performs one operation against the Harness home, and requests process exit.
 
 ## Commands
 
@@ -29,6 +29,8 @@ Invitations require an existing owner Grant in the target registry (the bootstra
 
 The runner composes `remote-hosts-ssh` so `--ssh-host` dials the same transport the remote-hosts coordinator uses, reading host records from the profile home's `remote-hosts.json`. Delegation commands resolve the target's stored transport the same way — direct origins dial as-is, `ssh` transports forward to the target's loopback port for the call's lifetime.
 
+Its manifest declares `dsh.bundle.homeOwnership: "shared"`, so every command runs while Web holds the home lease (see [profile ownership](../../boot/app-boot/README.md#profiles)): `peer invite` and `peer list` work on a home whose instance is serving, and `peer outbox` reads the ledger that instance writes. The composition hands the runner every value the command tree collects. The Harness home is the runner row's `dshHome` when a patch layer sets it, otherwise `$DSH_HOME`, then `~/.dsh` ([home paths](../../util/home-paths/README.md)).
+
 ## Verification
 
 From the repository root:
@@ -37,7 +39,11 @@ From the repository root:
 node_modules/.bin/vitest run packages/bundle/peer-app
 node_modules/.bin/tsc -p packages/bundle/peer-app/tsconfig.json --noEmit --incremental false --composite false
 node_modules/.bin/oxlint --config .oxlintrc.json packages/bundle/peer-app
+node_modules/.bin/vitest run apps/cli/tests/profile-ownership.spec.ts
+node_modules/.bin/vitest run --config vitest.e2e.config.ts apps/cli/tests/built-bin.e2e.ts
 ```
+
+The package suite boots the shipped `cordis.patch.yml` through the Loader, the two `apps/cli` suites boot the same composition through the source launcher beside a home owner and through the built `bin.js`.
 
 ## Model Experience
 
@@ -50,5 +56,6 @@ None; the app assembles no model input.
 ## Known Limitations and Deferred Work
 
 - `peer invite` writes invitations through the local registry file; the serving instance observes them through its registry watcher, so a stopped instance must be started before the invitation is redeemed.
+- The home is shared with the serving instance and the peer stores take no cross-process lock, so two same-instant writers keep only the last one: a record the instance appends while `peer remove` rewrites `peers.json`, or an identity (`instance.json`) or signing key both mint on a home that has neither yet. Each write is atomic, so a store is never left corrupt; the affected peer pairs again.
 - `peer run` and `peer send` are synchronous: a budget that expires with the turn still running prints `state: running` and exits 0; the operator continues the session later by session id. No initiator-side outbox queues prompts while the target is unreachable.
 - No invitation listing or revocation commands here; `dsh auth code list` and `dsh auth code revoke` own those operations for every invitation kind.

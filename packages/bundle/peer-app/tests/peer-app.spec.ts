@@ -2,12 +2,12 @@
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import Include from '@deepseek-ai/cordis-plugin-include'
+import Include, { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { internals as cmdlineInternals, provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import * as Authentication from '@deepseek-ai/dsh-authentication-local'
 import * as WebServer from '@deepseek-ai/dsh-host-webserver'
@@ -27,6 +27,9 @@ import { apply as applyRunner } from '../src/index.ts'
 import { internals as runnerInternals } from '../src/internals.ts'
 import { apply as applyStartup } from '../src/startup.ts'
 import type { RemoteHostSshProvider } from '@deepseek-ai/dsh-remote-hosts-ssh'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
+import * as yaml from 'js-yaml'
 import { afterEach, expect, it } from 'vitest'
 
 const directories: string[] = []
@@ -49,33 +52,35 @@ async function temporary(prefix: string): Promise<string> {
 
 interface InvocationResult { code: number; out: string; err: string }
 
-/** Boot the two production plugins through Loader; a stub remote-hosts-ssh satisfies the runner injection. */
-async function invoke(args: string[], dshHome: string, overrides: Record<string, object> = {}): Promise<InvocationResult> {
-  const fixture = await temporary('dsh-peer-app-loader-')
-  const fields = ['operation', 'uri', 'endpoint', 'displayName', 'ttl', 'fingerprint', 'sshHost', 'instanceId', 'timeoutMs', 'prompt', 'sessionId', 'cwd', 'profile', 'messageId', 'surface', 'async', 'attach', 'path', 'out']
-  await writeFile(join(fixture, 'cordis.yml'), [
-    '- id: remote-hosts-ssh',
-    '  name: remote-hosts-ssh',
-    '- id: storage',
-    '  name: storage',
-    '- id: storage-json',
-    '  name: storage-json',
-    '  config:',
-    `    root: ${JSON.stringify(join(dshHome, 'storages'))}`,
-    '- id: storage-domain',
-    '  name: storage-domain',
-    '  config:',
-    '    backend: json',
-    '- id: peer-runner',
-    '  name: peer-runner',
-    '  inject: [peerStartup, remoteHostSsh, storageDomain]',
-    '  config:',
-    ...fields.map(field => `    ${field}: !!js ctx.peerStartup.${field}`),
-    `    dshHome: ${JSON.stringify(dshHome)}`,
-    '- id: peer-startup',
-    '  name: peer-startup',
-    '',
-  ].join('\n'))
+let shipped: PatchOptions[] | undefined
+
+/** The shipped composition, parsed on first use exactly as the launcher parses a bundle patch layer. */
+async function shippedPatch(): Promise<PatchOptions[]> {
+  shipped ??= yaml.load(
+    await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8'),
+    { schema: entryListSchema },
+  ) as PatchOptions[]
+  return shipped
+}
+
+/** The modules the shipped composition mounts, keyed by the bare names its rows declare. */
+const shippedModules: Record<string, object> = {
+  '@deepseek-ai/dsh-peer-app/startup': { name: 'peer-startup', inject: ['cmdlineArgs'], apply: applyStartup },
+  '@deepseek-ai/dsh-peer-app': { name: 'peer-runner', inject: ['peerStartup', 'remoteHostSsh', 'storageDomain'], apply: applyRunner },
+  '@deepseek-ai/dsh-remote-hosts-ssh': RemoteHostSsh,
+  '@deepseek-ai/dsh-storage': { default: Storage },
+  '@deepseek-ai/dsh-storage-json': StorageJson,
+  '@deepseek-ai/dsh-storage-domain': StorageDomain,
+}
+
+/**
+ * Boot one entry tree through the Loader over an empty root and run one command line to exit.
+ * The home is published the way app boot publishes it — the `dshHomePath` expression service and
+ * `$DSH_HOME` — so the shipped rows resolve against `dshHome` for exactly this invocation.
+ */
+async function boot(
+  args: string[], tree: { root: string; patches?: PatchOptions[] }, modules: Record<string, object>, dshHome: string,
+): Promise<InvocationResult> {
   let out = ''
   let err = ''
   const stdout = { write: (chunk: string) => { out += chunk; return true } }
@@ -84,30 +89,42 @@ async function invoke(args: string[], dshHome: string, overrides: Record<string,
   cmdlineInternals.stderr = stderr
   runnerInternals.stdout = stdout
   runnerInternals.stderr = stderr
-  const modules: Record<string, object> = {
-    'remote-hosts-ssh': RemoteHostSsh,
-    storage: { default: Storage },
-    'storage-json': StorageJson,
-    'storage-domain': StorageDomain,
-    'peer-startup': { name: 'peer-startup', inject: ['cmdlineArgs'], apply: applyStartup },
-    'peer-runner': { name: 'peer-runner', inject: ['peerStartup', 'remoteHostSsh'], apply: applyRunner },
-    ...overrides,
+  const previousHome = process.env.DSH_HOME
+  process.env.DSH_HOME = dshHome
+  try {
+    const ctx = new Context()
+    contexts.push(ctx)
+    ctx.baseUrl = pathToFileURL(dirname(tree.root)).href + '/'
+    ctx.provide('dshHomePath', dshHomePath)
+    await ctx.plugin(Loader)
+    ctx.loader.builtins.include = Include
+    ctx.loader.internal = { version: 'v2', async import(specifier: string) {
+      const module = modules[specifier]
+      if (!module) throw new Error(`this fixture provides no module for ${specifier}`)
+      return module
+    } } as unknown as NonNullable<typeof ctx.loader.internal>
+    const exited = new Promise<number>((resolve) => { provideCmdline(ctx, { args, exit: resolve }) })
+    await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(tree.root).href, patches: tree.patches } })
+    await ctx.loader.await()
+    const code = await exited
+    return { code, out, err }
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
   }
-  const ctx = new Context()
-  contexts.push(ctx)
-  ctx.baseUrl = pathToFileURL(fixture).href + '/'
-  await ctx.plugin(Loader)
-  ctx.loader.builtins.include = Include
-  ctx.loader.internal = { version: 'v2', async import(specifier: string) {
-    const module = modules[specifier]
-    if (!module) throw new Error(`unknown fixture module ${specifier}`)
-    return module
-  } } as unknown as NonNullable<typeof ctx.loader.internal>
-  const exited = new Promise<number>((resolve) => { provideCmdline(ctx, { args, exit: resolve }) })
-  await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(join(fixture, 'cordis.yml')).href } })
-  await ctx.loader.await()
-  const code = await exited
-  return { code, out, err }
+}
+
+/**
+ * Run one command line through the shipped composition on an empty tree, as `dsh peer` mounts it.
+ * @param stubs - shipped modules a test replaces, keyed by the bare name of the row they stand in for.
+ */
+async function invoke(
+  args: string[], dshHome: string, stubs: Record<string, object> = {},
+): Promise<InvocationResult> {
+  const root = join(await temporary('dsh-peer-app-loader-'), 'cordis.yml')
+  await writeFile(root, '[]\n')
+  // Fresh copies per invocation: the include keeps insert rows by reference.
+  return boot(args, { root, patches: structuredClone(await shippedPatch()) }, { ...shippedModules, ...stubs }, dshHome)
 }
 
 /** One freshly issued invitation payload against a bootstrapped target. */
@@ -514,6 +531,28 @@ it('rejects an invalid endpoint, a bad fingerprint, an unknown SSH host, and a m
   expect(noHome.code).toBe(0)
 })
 
+it('falls back to DSH_HOME when the runner row carries no dshHome', async () => {
+  const home = await temporary('peer-app-default-home-')
+  const id = '88888888-1111-4222-8333-444455556666'
+  await writeFile(join(home, 'peers.json'), JSON.stringify({ version: 1, peers: [{
+    instanceId: id, displayName: 'Listed', platform: 'linux', arch: 'x64', version: '1',
+    surface: { delegate: true, message: true, list: true }, pairedVia: 'invitation', status: 'active',
+    firstSeenAt: '2026-11-18T08:00:00.000Z', lastSeenAt: '2026-11-18T08:00:00.000Z',
+  }] }))
+  // A composition whose runner row names no home: only `$DSH_HOME`, published by the launcher, can place it.
+  const root = join(await temporary('peer-app-bare-'), 'cordis.yml')
+  await writeFile(root, [
+    '- id: peer-startup', "  name: '@deepseek-ai/dsh-peer-app/startup'",
+    '- id: peer-runner', "  name: '@deepseek-ai/dsh-peer-app'", '  config:', '    operation: list', '',
+  ].join('\n'))
+  const result = await boot(['list'], { root }, {
+    ...shippedModules,
+    '@deepseek-ai/dsh-peer-app': { name: 'peer-runner', inject: ['peerStartup'], apply: applyRunner },
+  }, home)
+  expect(result).toMatchObject({ code: 0, err: '' })
+  expect(result.out).toBe(`${id}\tListed\tlinux/x64\tactive\t2026-11-18T08:00:00.000Z\n`)
+})
+
 it('rejects unknown ids on remove and forget, and removes a grant-less record', async () => {
   const target = await servingTarget()
   const initiator = await temporary('peer-app-initiator-')
@@ -629,7 +668,7 @@ it('pairs through a stubbed SSH forward to a live target', async () => {
       authentication: { kind: 'key', keyPath }, reverseMappings: [],
     }],
   }))
-  const overrides = { 'remote-hosts-ssh': { default: Ssh } }
+  const overrides = { '@deepseek-ai/dsh-remote-hosts-ssh': { default: Ssh } }
   const agentAdded = await invoke(['add', `dsh-peer://${Buffer.from(JSON.stringify({
     version: 1, instanceId: target.identity.instanceId, displayName: target.identity.displayName,
     endpoint: { origin: 'http://127.0.0.1:9' }, token: (await target.invite()).token,
@@ -644,7 +683,7 @@ it('pairs through a stubbed SSH forward to a live target', async () => {
     endpoint: { origin: 'http://127.0.0.1:9' }, token: (await target.invite()).token,
   })).toString('base64url')}`
   void identity
-  const added = await invoke(['add', uri, '--ssh-host', 'keybox', '--timeout', '20000'], registryHome, { 'remote-hosts-ssh': { default: Ssh } })
+  const added = await invoke(['add', uri, '--ssh-host', 'keybox', '--timeout', '20000'], registryHome, { '@deepseek-ai/dsh-remote-hosts-ssh': { default: Ssh } })
   expect(added.code).toBe(0)
   expect(added.out).toContain('paired\t')
   expect(forwards).toEqual([Number(new URL(target.origin).port), Number(new URL(target.origin).port), Number(new URL(target.origin).port)])
@@ -709,14 +748,14 @@ it('maps agent and encrypted host logins onto closed credential rejections', asy
     version: 1, instanceId: identity.instanceId, displayName: 'x',
     endpoint: { origin: 'http://127.0.0.1:9' }, token: `dshi1_${'A'.repeat(27)}`,
   })).toString('base64url')}`
-  const passwordRef = await invoke(['add', uri, '--ssh-host', 'box', '--timeout', '500'], registryHome, { 'remote-hosts-ssh': { default: Ssh } })
+  const passwordRef = await invoke(['add', uri, '--ssh-host', 'box', '--timeout', '500'], registryHome, { '@deepseek-ai/dsh-remote-hosts-ssh': { default: Ssh } })
   expect(passwordRef.code).toBe(1)
   expect(passwordRef.err).toContain('UNSUPPORTED_CREDENTIALS')
   const httpsUri = `dsh-peer://${Buffer.from(JSON.stringify({
     ...JSON.parse(Buffer.from(uri.slice('dsh-peer://'.length), 'base64url').toString('utf8')) as object,
     endpoint: { origin: 'https://box.invalid:9' },
   })).toString('base64url')}`
-  const https = await invoke(['add', httpsUri, '--ssh-host', 'agentbox'], registryHome, { 'remote-hosts-ssh': { default: Ssh } })
+  const https = await invoke(['add', httpsUri, '--ssh-host', 'agentbox'], registryHome, { '@deepseek-ai/dsh-remote-hosts-ssh': { default: Ssh } })
   expect(https.code).toBe(1)
   expect(https.err).toContain('ssh targets require a loopback')
   expect(observations).toEqual([])

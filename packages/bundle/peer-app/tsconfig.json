@@ -17,6 +17,7 @@
     { "path": "../../boot/cmdline" },
     { "path": "../../ssh/remote-hosts" },
     { "path": "../../ssh/remote-hosts-ssh" },
+    { "path": "../../util/home-paths" },
     { "path": "../../runtime-diagnostics/invariants" }
   ]
 }

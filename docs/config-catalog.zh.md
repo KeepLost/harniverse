@@ -2424,7 +2424,7 @@ Requires: `peerStartup` · `remoteHostSsh` · `storageDomain`
 ```ts config-catalog
 /** Peer pairing runner configuration. */
 export interface Config extends PeerStartupValues {
-  /** Harness home of this instance. */
+  /** Harness home holding the pairing records, the identity, and the Grant registry; defaults to `$DSH_HOME`, then `~/.dsh`. */
   dshHome?: string
 }
 
@@ -2483,7 +2483,7 @@ export interface PeerStartupValues {
 export type PeerOperation = 'invite' | 'add' | 'list' | 'remove' | 'targets' | 'forget' | 'cancel' | 'run' | 'send' | 'sessions' | 'result' | 'surface' | 'fetch' | 'outbox'
 ```
 
-Source: [`packages/bundle/peer-app/src/index.ts:54`](../packages/bundle/peer-app/src/index.ts)
+Source: [`packages/bundle/peer-app/src/index.ts:56`](../packages/bundle/peer-app/src/index.ts)
 
 <a id="deepseek-aidsh-peer-host"></a>
 

@@ -17,7 +17,7 @@ Status: implemented
 
 ## 决策
 
-两个 Harniverse 实例以家对家方式配对。家锚定身份:`instance.json` 为每个家铸造一个小写 UUID id(绝不重铸),发起方以 `peers/identity.pem` 下的一把 P-256 密钥签名,而独占家租约已保证每家一个进程。配对原样复用入站认证注册表:`dsh peer invite` 签发一次性的、属于新 `peer` enrollment 类别的 `dshi1_` 邀请,能力限定为新的正交能力 `harniverse.peer`;`dsh peer add` 以确定性的 `peer-<instanceId>` 名登记、兑换邀请(持有即批准)、交换挑战并调用 `peer/hello`。Grant 以 `api-client` 类别创建,且只携带这一个能力。两侧互相钉死对方实例 id:邀请声称目标的 id,回读不符则以 `IDENTITY_MISMATCH` 中止。
+两个 Harniverse 实例以家对家方式配对。家锚定身份:`instance.json` 为每个家铸造一个小写 UUID id(绝不重铸),发起方以 `peers/identity.pem` 下的一把 P-256 密钥签名,而独占家租约已保证每家一个运行中的实例。配对原样复用入站认证注册表:`dsh peer invite` 签发一次性的、属于新 `peer` enrollment 类别的 `dshi1_` 邀请,能力限定为新的正交能力 `harniverse.peer`;`dsh peer add` 以确定性的 `peer-<instanceId>` 名登记、兑换邀请(持有即批准)、交换挑战并调用 `peer/hello`。Grant 以 `api-client` 类别创建,且只携带这一个能力。两侧互相钉死对方实例 id:邀请声称目标的 id,回读不符则以 `IDENTITY_MISMATCH` 中止。
 
 放弃的东西:把调用方 Grant 密码学地绑进 peer 记录。Typert Remote 边界不向服务方法暴露已认证 principal,因此记录信任"邀请持有 + 注册表名字唯一性"(首个 `peer-<id>` 登记拥有该名字;第二把密钥无法抢占)。绑定调用密钥的挑战签名 hello 等待边界上的 principal 可见性。
 
@@ -31,7 +31,7 @@ Fail-closed 规则:每个 `peer/*` Remote 都要求 `harniverse.peer`;VM 执行�
 
 - 新包:`dsh-peer-protocol`(词汇、编解码、身份)、`dsh-peer-host`(`ctx.peerHost`、`peer/hello`、`peers.json`、`peer/paired`/`peer/removed` 事件)、`dsh-peer-client`(签名身份、`peer-targets.json`、配对编排)、`dsh-peer-app`(`dsh peer invite|add|list|remove|targets|forget`)。
 - 认证增量:`harniverse.peer` 能力;`peer` enrollment 类别兑换为 `api-client` grant;enrollment 路由接受该类别。
-- 组合:web-app bundle 中的 `peer-host`;`peer` 内置 profile 与启动器别名;CLI 依赖。
+- 组合:web-app bundle 中的 `peer-host`;`peer` 内置 profile 与启动器别名。`dsh-peer-app` 是共享组合包——其 manifest 声明带 `homeOwnership: "shared"` 的 `dsh.bundle`——因此 `dsh peer` 在持有 home 租约的服务实例旁边运行;dsh 应用声明该组合包挂载的每一个插件,因为共享组合从安装目录解析其行。
 
 ## 必需验证
 
@@ -39,6 +39,7 @@ Fail-closed 规则:每个 `peer/*` Remote 都要求 `harniverse.peer`;VM 执行�
 - 封闭原因拒绝:已消费邀请、篡改身份、不可达 origin、VM 守卫、已撤销 peer、畸形存储与载荷。
 - Provider 侧的邀请类别路径(`invitation-runtime.spec.ts`)与能力词表断言。
 - `pnpm run build` 重新生成 `peer/hello` 的严格 Remote 契约;`packages/peer/peer-host/tests/typert.spec.ts` 执行生成的 schema。
+- 随发行的组合本身可启动:`packages/bundle/peer-app/tests/peer-app.spec.ts` 挂载真实的 `cordis.patch.yml`;`apps/cli/tests/profile-ownership.spec.ts` 在 home 持有者旁边启动 `dsh peer`,并对照 dsh 应用 manifest 检查每个随发行的共享组合包的行;`apps/cli/tests/built-bin.e2e.ts` 经构建出的 `bin.js` 启动各管理 profile。
 
 ## 备选方案
 

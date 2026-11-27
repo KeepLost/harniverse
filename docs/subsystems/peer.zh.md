@@ -2,7 +2,7 @@
 
 [English](peer.md) | 中文
 
-实例配对(instance pairing)连接两个 Harniverse 家(home),使一个实例的模型此后可以在另一个实例上委派和消息会话,各自运行在自己的环境里。配对本身不交换任何任务数据:它建立的是一个已认证 principal、两条持久记录和一个经过身份核验的通道锚点。家是身份锚点——一个 `instance.json`、一把 P-256 签名密钥、一份会话语料——而独占家租约已经保证每个家同一时刻只有一个运行中的进程。
+实例配对(instance pairing)连接两个 Harniverse 家(home),使一个实例的模型此后可以在另一个实例上委派和消息会话,各自运行在自己的环境里。配对本身不交换任何任务数据:它建立的是一个已认证 principal、两条持久记录和一个经过身份核验的通道锚点。家是身份锚点——一个 `instance.json`、一把 P-256 签名密钥、一份会话语料——而独占家租约已经保证每个家同一时刻只有一个运行中的实例;`dsh peer` 管理应用是与之并存的一次性共享组合。
 
 Service Definition:[dsh-peer-host](../../packages/peer/peer-host)(`ctx.peerHost` + `peer/*` Remote 命名空间与事件)。共享词汇与家锚定身份位于 [dsh-peer-protocol](../../packages/peer/peer-protocol);发起方编排、目标存储与共享传输拨号位于 [dsh-peer-client](../../packages/peer/peer-client);面向模型的 `peer` 工具是 [dsh-tool-peer](../../packages/peer/tool-peer);`dsh peer` 管理应用是 [dsh-peer-app](../../packages/bundle/peer-app)。设计理由见[实例配对 Agent Note](../../.agents/notes/implemented/feature/2026-11-18-peer-instance-pairing.md)。模型侧工具的决策见[peer 工具 Agent Note](../../.agents/notes/implemented/feature/2026-11-19-peer-tool.md)。
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这些包连接两个 Harniverse 家,使一个实例此后可以在另一个实例上委派和消息会话。每个家锚定一个身份——铸造的 UUID、一把 P-256 签名密钥、一份会话语料——而独占家租约已保证每家一个进程。
+这些包连接两个 Harniverse 家,使一个实例此后可以在另一个实例上委派和消息会话。每个家锚定一个身份——铸造的 UUID、一把 P-256 签名密钥、一份会话语料——而独占家租约已保证每家一个运行中的实例;`dsh peer` 管理应用是与之并存的一次性共享组合。
 
 `dsh-peer-protocol` 拥有共享词汇:`dsh-peer:` 邀请编解码、家锚定的 `instance.json`、封闭错误集与 `peer-<instanceId>` Grant 命名约定。`dsh-peer-host` 是接受方——挂在 `ctx.peerHost` 的能力门控配对与委派 Remote,以及权威的 `peers.json`。`dsh-peer-client` 是发起方库——签名身份、`peer-targets.json`、"注册—兑换—hello"编排,以及共享的传输拨号。`dsh-tool-peer` 把委派以 `peer` 工具暴露给模型,`dsh-peer-outbox` 是发起方结算台账——对已接受仍在运行的轮次做持久跟踪、只读轮询并排队投回发起会话——`dsh-peer-app`(位于 `packages/bundle/`)是 `dsh peer` 一次性管理 CLI。
 

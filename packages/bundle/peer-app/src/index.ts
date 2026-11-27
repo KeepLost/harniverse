@@ -11,6 +11,7 @@ import {
 } from '@deepseek-ai/dsh-authentication-local'
 import { authenticationGrantId } from '@deepseek-ai/dsh-authentication'
 import type {} from '@deepseek-ai/dsh-cmdline'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import {
   PEER_CAPABILITY,
   PEER_ENROLLMENT_KIND,
@@ -53,7 +54,7 @@ export const inject = ['peerStartup', 'remoteHostSsh', 'storageDomain']
 
 /** Peer pairing runner configuration. */
 export interface Config extends PeerStartupValues {
-  /** Harness home of this instance. */
+  /** Harness home holding the pairing records, the identity, and the Grant registry; defaults to `$DSH_HOME`, then `~/.dsh`. */
   dshHome?: string
 }
 
@@ -126,7 +127,7 @@ function required(value: string | undefined, operation: PeerOperation, field: st
 
 /** Execute one operation and request bounded process exit. */
 async function run(config: Config, ctx: Context, exit: (code: number) => void): Promise<void> {
-  const home = required(config.dshHome, config.operation, 'a Harness home')
+  const home = resolveDshHome(config.dshHome)
   switch (config.operation) {
     case 'invite': {
       const origin = validateOrigin({ origin: required(config.endpoint, config.operation, '--endpoint') })
@@ -332,7 +333,7 @@ async function run(config: Config, ctx: Context, exit: (code: number) => void): 
  */
 async function resolveTarget(config: Config): Promise<PeerTarget> {
   const id = peerInstanceId(required(config.instanceId, config.operation, 'an instance id'))
-  const target = (await readPeerTargets(required(config.dshHome, config.operation, 'a Harness home')))
+  const target = (await readPeerTargets(resolveDshHome(config.dshHome)))
     .find(entry => entry.targetInstanceId === id && entry.status === 'active')
   if (target === undefined) throw new PeerError('RECORD_NOT_FOUND', 'no active pairing target')
   return target
