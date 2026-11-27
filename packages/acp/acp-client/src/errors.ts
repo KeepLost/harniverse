@@ -54,6 +54,27 @@ export function isAcpError(error: unknown): error is AcpError {
 /** JSON-RPC `Authentication required`, the code an agent answers when its method was never completed. */
 export const AUTH_REQUIRED_CODE = -32000
 
+/** JSON-RPC `Resource not found`: the agent no longer holds the session a request named. */
+export const NOT_FOUND_CODE = -32002
+
+/**
+ * Whether an agent refused a request until its sign-in is completed.
+ * @param error - a thrown value.
+ * @returns whether it is the `Authentication required` answer.
+ */
+export function isAcpAuthRequired(error: unknown): boolean {
+  return error instanceof AcpError && error.code === AUTH_REQUIRED_CODE
+}
+
+/**
+ * Whether an agent answered that it holds no such session.
+ * @param error - a thrown value.
+ * @returns whether it is the `Resource not found` answer.
+ */
+export function isAcpNotFound(error: unknown): boolean {
+  return error instanceof AcpError && error.code === NOT_FOUND_CODE
+}
+
 /**
  * The kind an agent-side JSON-RPC error code names; `fallback` for every other code.
  * @param code - the JSON-RPC error code the agent answered with.

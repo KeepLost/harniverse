@@ -121,6 +121,42 @@ describe('normalizeUpdate', () => {
   })
 })
 
+describe('plan, option, and command reports', () => {
+  it('reads a named plan whole, and the legacy one without an id', () => {
+    const entry = { content: 'Ship it', priority: 'high', status: 'in_progress' }
+    expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'items', planId: 'p1', entries: [entry] } }))
+      .toEqual({ kind: 'plan', entries: [entry], planId: 'p1' })
+    expect(normalizeUpdate({ sessionUpdate: 'plan', entries: [{ content: 'One' }] })).toEqual({ kind: 'plan', entries: [{ content: 'One' }] })
+  })
+
+  it('leaves a plan kept as a document, a malformed one, and an unidentified removal as other', () => {
+    const markdown = { sessionUpdate: 'plan_update', plan: { type: 'markdown', planId: 'p1', content: '# Plan' } }
+    expect(normalizeUpdate(markdown)).toEqual({ kind: 'other', sessionUpdate: 'plan_update', update: markdown })
+    expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'items', entries: [] } }).kind).toBe('other')
+    expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'items', planId: 'p1', entries: 'x' } }).kind).toBe('other')
+    expect(normalizeUpdate({ sessionUpdate: 'plan', entries: 'x' }).kind).toBe('other')
+    expect(normalizeUpdate({ sessionUpdate: 'plan_removed' }).kind).toBe('other')
+    expect(normalizeUpdate({ sessionUpdate: 'plan_removed', planId: 'p1' })).toEqual({ kind: 'plan-removed', planId: 'p1' })
+  })
+
+  it('reads the mode, every option, and every command an agent reports', () => {
+    expect(normalizeUpdate({ sessionUpdate: 'current_mode_update', currentModeId: 'plan' })).toEqual({ kind: 'mode', currentModeId: 'plan' })
+    const option = { id: 'model', name: 'Model', type: 'select', currentValue: 'opus', options: [{ value: 'opus', name: 'Opus' }] }
+    expect(normalizeUpdate({ sessionUpdate: 'config_option_update', configOptions: [option, 'x'] }))
+      .toEqual({ kind: 'config', configOptions: [option] })
+    const command = { name: '/compact', description: 'Summarize', input: { hint: 'none' } }
+    expect(normalizeUpdate({ sessionUpdate: 'available_commands_update', availableCommands: [command] }))
+      .toEqual({ kind: 'commands', commands: [{ name: '/compact', description: 'Summarize', inputHint: 'none' }] })
+  })
+
+  it('leaves a malformed report as other', () => {
+    expect(normalizeUpdate({ sessionUpdate: 'current_mode_update' }).kind).toBe('other')
+    expect(normalizeUpdate({ sessionUpdate: 'config_option_update', configOptions: {} }).kind).toBe('other')
+    expect(normalizeUpdate({ sessionUpdate: 'available_commands_update', availableCommands: [{ name: '/x' }] }).kind).toBe('other')
+    expect(normalizeUpdate({ sessionUpdate: 'available_commands_update', availableCommands: '/x' }).kind).toBe('other')
+  })
+})
+
 describe('parseSessionUpdate', () => {
   it('reads the session id and the normalized update', () => {
     expect(parseSessionUpdate({ sessionId: 's1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'a' } } }))

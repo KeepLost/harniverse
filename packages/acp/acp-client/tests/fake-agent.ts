@@ -48,6 +48,8 @@ export interface V1Script {
   loadSession?: (params: LoadSessionRequest) => unknown
   listSessions?: (params: ListSessionsRequest) => unknown
   closeSession?: (params: CloseSessionRequest) => unknown
+  setMode?: (params: unknown) => unknown
+  setConfigOption?: (params: unknown) => unknown
   /** Runs once the client closed the connection; replaces the default exit. */
   onClosed?: (process: FakeProcess) => void
 }
@@ -57,7 +59,7 @@ export class FakeProcess implements SubprocessHandle {
   readonly pid = 4242
   readonly stdin: PassThrough = new PassThrough()
   readonly stdout: PassThrough = new PassThrough()
-  readonly stderr = undefined
+  stderr: PassThrough | undefined = undefined
   readonly control = undefined
   readonly collected: SubprocessCollectedOutputs = {}
   readonly done: Promise<SubprocessOutcome>
@@ -74,12 +76,19 @@ export class FakeProcess implements SubprocessHandle {
     })
   }
 
+  /** Give the process a stderr the client can read; returns it. */
+  captureStderr(): PassThrough {
+    this.stderr ??= new PassThrough()
+    return this.stderr
+  }
+
   /** End the process tree with an outcome. Later calls are ignored. */
   exit(exitCode: number | null, signal: NodeJS.Signals | null): void {
     if (this.settled) return
     this.settled = true
     this.stdout.end()
     this.stdin.end()
+    this.stderr?.end()
     this.outcome.resolve({ exitCode, signal })
   }
 
@@ -172,6 +181,14 @@ export function attachV1(process: FakeProcess, script: V1Script, received: Recei
   app.onRequest(methods.agent.session.close, ({ params }) => {
     received.push({ method: 'session/close', params })
     return answer(script.closeSession?.(params) ?? {}) as CloseSessionResponse
+  })
+  app.onRequest('session/set_mode' as never, ({ params }) => {
+    received.push({ method: 'session/set_mode', params })
+    return answer(script.setMode?.(params) ?? {})
+  })
+  app.onRequest('session/set_config_option' as never, ({ params }) => {
+    received.push({ method: 'session/set_config_option', params })
+    return answer(script.setConfigOption?.(params) ?? {})
   })
   app.onRequest(methods.agent.session.prompt, async ({ params, client, signal }) => {
     received.push({ method: 'session/prompt', params })

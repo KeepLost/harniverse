@@ -22,6 +22,12 @@ export interface AcpAgentDefinition {
   readonly protocol?: AcpProtocol
   /** Id of the {@link AcpAgentProfile} pinned to this agent before the handshake. */
   readonly profile?: string
+  /**
+   * Id of the sign-in method this definition completes when the agent demands
+   * sign-in. Absent, the first agent-driven method the agent advertises is
+   * completed, and the first terminal one when it advertises none.
+   */
+  readonly authMethod?: string
 }
 
 /** A prompt block this client sends. Prompts are text. */
@@ -65,7 +71,15 @@ export interface AcpUsage {
   readonly cost?: unknown
 }
 
-/** Foreground work state an agent reported. */
+/** A command the agent offers inside a prompt. */
+export interface AcpCommand {
+  /** Text that invokes it, such as `/compact`. */
+  readonly name: string
+  readonly description: string
+  /** What the agent expects after the name. */
+  readonly inputHint?: string
+}
+
 /**
  * Foreground work state an agent reported. The protocol's `unknown` state and
  * any state this client does not recognize both arrive as `unknown`.
@@ -95,7 +109,9 @@ export type AcpUpdate =
   | { readonly kind: 'message'; readonly content: readonly AcpContentBlock[] }
   | { readonly kind: 'thought'; readonly content: readonly AcpContentBlock[] }
   | { readonly kind: 'tool-call'; readonly patch: AcpToolCallPatch }
-  | { readonly kind: 'plan'; readonly entries: readonly AcpPlanEntry[] }
+  /** The whole plan, or the whole of one named plan when the agent keeps several. */
+  | { readonly kind: 'plan'; readonly entries: readonly AcpPlanEntry[]; readonly planId?: string }
+  | { readonly kind: 'plan-removed'; readonly planId: string }
   | { readonly kind: 'usage'; readonly usage: AcpUsage }
   | { readonly kind: 'session-info'; readonly title?: string; readonly updatedAt?: string }
   | {
@@ -104,6 +120,12 @@ export type AcpUpdate =
     readonly message?: string
     readonly severity?: string
   }
+  /** The session's mode changed, on the person's request or the agent's own. */
+  | { readonly kind: 'mode'; readonly currentModeId: string }
+  /** Every configuration option as it stands after a change. */
+  | { readonly kind: 'config'; readonly configOptions: readonly AcpConfigOption[] }
+  /** Every command the agent offers, replacing the earlier list. */
+  | { readonly kind: 'commands'; readonly commands: readonly AcpCommand[] }
   | {
     readonly kind: 'state'
     readonly state: AcpWorkState
@@ -140,10 +162,60 @@ export interface AcpPromptOptions {
   readonly signal?: AbortSignal
 }
 
+/** Options of one request this client sends while a turn may be cancelled. */
+export interface AcpSessionRequestOptions {
+  /** Ends the wait, and the sign-in it may have started, when it aborts. */
+  readonly signal?: AbortSignal
+}
+
+/** One mode an agent offers for a session, such as a permission mode. */
+export interface AcpSessionMode {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+}
+
+/** The modes an agent offers and the one in effect. */
+export interface AcpSessionModes {
+  readonly current: string
+  readonly available: readonly AcpSessionMode[]
+}
+
+/** A value a configuration option can be set to. */
+export type AcpConfigValue = string | boolean
+
+/** One value a `select` option accepts. */
+export interface AcpConfigChoice {
+  readonly value: string
+  readonly name: string
+  readonly description?: string
+  /** Label of the group the agent filed the choice under. */
+  readonly group?: string
+}
+
+/** One setting an agent offers for a session, such as its model or effort. */
+export interface AcpConfigOption {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  /** The agent's grouping, such as `model`, `thought_level`, `speed`, or `mode`. */
+  readonly category?: string
+  readonly type: 'select' | 'boolean'
+  readonly currentValue: AcpConfigValue
+  /** Every value a `select` option accepts; absent for a `boolean` one. */
+  readonly options?: readonly AcpConfigChoice[]
+}
+
 /** One session on a connected agent. */
 export interface AcpSession {
   /** Identity the agent assigned; unique within that agent process. */
   readonly sessionId: string
+  /** Modes the agent offers, as last reported; `undefined` while it offers none. */
+  readonly modes: AcpSessionModes | undefined
+  /** Configuration options the agent offers, as last reported. */
+  readonly configOptions: readonly AcpConfigOption[] | undefined
+  /** Commands the agent offers inside a prompt, as last reported. */
+  readonly commands: readonly AcpCommand[] | undefined
   /**
    * Send one prompt and observe the turn it starts. A session runs one turn at
    * a time; a second prompt while a turn is active rejects with an `AcpError`.
@@ -154,6 +226,22 @@ export interface AcpSession {
   prompt(prompt: readonly AcpPromptBlock[], options?: AcpPromptOptions): AcpTurn
   /** Ask the agent to cancel the active turn. Resolves once the notification was written. */
   cancel(): Promise<void>
+  /**
+   * Switch the session's mode.
+   * @param modeId - one of the offered modes.
+   * @param options - local cancellation.
+   * @returns the modes as the agent reports them afterwards.
+   * @throws an `AcpError` of kind `unsupported` when the protocol version has no modes.
+   */
+  setMode(modeId: string, options?: AcpSessionRequestOptions): Promise<AcpSessionModes>
+  /**
+   * Set one configuration option.
+   * @param configId - one of the offered options.
+   * @param value - a value that option accepts.
+   * @param options - local cancellation.
+   * @returns every option as the agent reports them afterwards.
+   */
+  setConfigOption(configId: string, value: AcpConfigValue, options?: AcpSessionRequestOptions): Promise<readonly AcpConfigOption[]>
 }
 
 /** A session an agent listed. */
@@ -179,12 +267,104 @@ export interface AcpCapabilities {
   }
 }
 
+/** One sign-in method an agent advertised at the handshake. */
+export interface AcpAuthMethod {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  /**
+   * `agent`: the agent completes it once `authenticate` names it. `terminal`:
+   * a person completes it by running the agent's own program once.
+   */
+  readonly kind: 'agent' | 'terminal'
+  /** Arguments the terminal run appends to the agent's own. */
+  readonly args?: readonly string[]
+  /** Environment the terminal run adds on top of the definition's. */
+  readonly env?: Readonly<Record<string, string>>
+}
+
 /** Identity and operations of the connected agent, as reported at the handshake. */
 export interface AcpAgentInfo {
   readonly name?: string
   readonly version?: string
   readonly capabilities: AcpCapabilities
+  /** Sign-in methods the agent offers, in its order. */
+  readonly authMethods: readonly AcpAuthMethod[]
 }
+
+/** A terminal sign-in a person completes outside the ACP connection. */
+export interface AcpTerminalSignIn {
+  readonly method: AcpAuthMethod
+  /** Program the person runs once. */
+  readonly command: string
+  /** Arguments of that run: the agent's own, then the method's. */
+  readonly args: readonly string[]
+}
+
+/**
+ * What a consumer does for the person while an agent waits for its sign-in.
+ * Every member is optional; one that is absent leaves that step to the agent.
+ */
+export interface AcpSignInHooks {
+  /**
+   * A browser address the agent printed while it waited: its sign-in page,
+   * or an address a later request asked the person to open.
+   */
+  readonly url?: (url: string) => void
+  /**
+   * Ask the person to complete a terminal sign-in.
+   * @param signIn - the method and the program to run.
+   * @param signal - ends the wait when the requesting turn is cancelled.
+   * @returns whether to retry; `false` gives up.
+   */
+  readonly terminal?: (signIn: AcpTerminalSignIn, signal: AbortSignal | undefined) => Promise<boolean>
+}
+
+/** One answer option of a question. */
+export interface AcpQuestionChoice {
+  /** What the agent receives when the person picks it. */
+  readonly value: string
+  /** What the person reads. */
+  readonly label: string
+  readonly description?: string
+}
+
+/** One field of a question an agent asked. */
+export type AcpQuestionField =
+  | { readonly type: 'text'; readonly name: string; readonly label: string; readonly required: boolean }
+  | { readonly type: 'number'; readonly name: string; readonly label: string; readonly required: boolean }
+  | { readonly type: 'boolean'; readonly name: string; readonly label: string; readonly required: boolean }
+  | {
+    readonly type: 'choice'
+    readonly name: string
+    readonly label: string
+    readonly required: boolean
+    readonly options: readonly AcpQuestionChoice[]
+    /** Whether several options may be picked. */
+    readonly multi: boolean
+  }
+
+/** An agent asking the person a question in the middle of its work. */
+export interface AcpQuestionRequest {
+  /** What the agent asks. */
+  readonly message: string
+  /** What the agent expects as an answer. */
+  readonly fields: readonly AcpQuestionField[]
+  /** Aborts when the agent withdrew the request or the connection closed. */
+  readonly signal: AbortSignal
+}
+
+/** One field's answer. */
+export type AcpQuestionValue = string | number | boolean | readonly string[]
+
+/** The answer to a question: the filled fields, a refusal to answer, or a cancelled request. */
+export type AcpQuestionAnswer =
+  | { readonly action: 'accept'; readonly content: Readonly<Record<string, AcpQuestionValue>> }
+  | { readonly action: 'decline' }
+  | { readonly action: 'cancel' }
+
+/** Answers the questions of one connection. */
+export type AcpQuestionAnswerer = (request: AcpQuestionRequest) => AcpQuestionAnswer | Promise<AcpQuestionAnswer>
 
 /** How the agent process ended. */
 export interface AcpExit {
@@ -199,17 +379,21 @@ export interface AcpConnection {
   /** Settles when the agent process exited. */
   readonly exited: Promise<AcpExit>
   /**
-   * Start a fresh session in the connection's working directory.
+   * Start a fresh session in the connection's working directory. A sign-in
+   * the agent demands here is completed first.
+   * @param options - local cancellation.
    * @returns the ready session.
    */
-  newSession(): Promise<AcpSession>
+  newSession(options?: AcpSessionRequestOptions): Promise<AcpSession>
   /**
    * Reattach to a session the agent still holds. Rejects with an `AcpError`
-   * of kind `unsupported` when the agent did not advertise resume.
+   * of kind `unsupported` when the agent did not advertise resume, and with
+   * the agent's own not-found error when it no longer holds the session.
    * @param sessionId - identity the agent assigned earlier.
+   * @param options - local cancellation.
    * @returns the resumed session.
    */
-  resumeSession(sessionId: string): Promise<AcpSession>
+  resumeSession(sessionId: string, options?: AcpSessionRequestOptions): Promise<AcpSession>
   /** List the sessions the agent holds; `unsupported` without the capability. */
   listSessions(): Promise<readonly AcpSessionInfo[]>
   /** Close one session; `unsupported` without the capability. */

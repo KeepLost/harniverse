@@ -15,12 +15,16 @@ export const V2: ProtocolShape = {
   version: 2,
   authenticate: 'auth/login',
   completion: 'idle-state',
-  initialize: client => ({
+  initialize: (client, capabilities) => ({
     protocolVersion: 2,
-    capabilities: {},
+    capabilities: {
+      ...capabilities.elicitation ? { elicitation: { form: {} } } : {},
+      ...capabilities.terminalAuth ? { auth: { terminal: {} } } : {},
+    },
     info: { name: client.name, version: client.version },
   }),
   newSession: cwd => ({ cwd }),
+  configValue: value => typeof value === 'boolean' ? { type: 'boolean', value } : { type: 'id', value },
   resume: (_response, sessionId, cwd) => ({ method: 'session/resume', params: { sessionId, cwd } }),
   permission: (params, signal) => {
     if (typeof params.sessionId !== 'string' || typeof params.title !== 'string') return undefined

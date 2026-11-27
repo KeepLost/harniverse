@@ -141,7 +141,8 @@ export class JsonRpcPeer {
         // The agent is gone; an answer nobody reads needs no report.
       })
     } finally {
-      this.incoming.delete(id)
+      // An agent may reuse an id at once; a newer request's controller stays.
+      if (this.incoming.get(id) === controller) this.incoming.delete(id)
     }
   }
 
