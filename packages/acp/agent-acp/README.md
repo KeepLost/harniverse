@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-ACP mode: an agent whose turns are turns of an external Agent Client Protocol (ACP) agent. The row contributes the step driver to every agent whose scope descends from its own, so a preset names ACP mode by composing this row and nothing else. Harniverse is then only the frontend: the external agent brings its own model, system prompt, tools, and skills, and the session log carries what it produced. The protocol, the process, and the teardown belong to [`acp/acp-client`](../acp-client/README.md).
+ACP mode: an agent whose turns are turns of an external Agent Client Protocol (ACP) agent. The row contributes the step driver to every agent whose scope descends from its own, so a preset names ACP mode by composing this row and nothing else. Harniverse is then only the frontend: the external agent brings its own model, system prompt, tools, and skills, and the session log carries what it produced. The protocol, the process, the sign-in, and the teardown belong to [`acp/acp-client`](../acp-client/README.md).
 
 ## Preset template
 
-[`preset/acp/`](preset/acp/agent.cordis.yml) is a template, not part of the shipped roster: an external agent is something you install yourself. Copy the directory to `${DSH_HOME:-$HOME/.dsh}/.agent-presets/acp/` and set `command` and `args` for the agent you have — Claude Code (`claude acp`), Codex (`codex-acp`), Gemini CLI (`gemini --experimental-acp`), Antigravity (`agy acp`), or any other conforming agent. Complete the agent's own sign-in once with its program, outside the harness.
+[`preset/acp/`](preset/acp/agent.cordis.yml) is a template, not part of the shipped roster: an external agent is something you install yourself. Copy the directory to `${DSH_HOME:-$HOME/.dsh}/.agent-presets/acp/` and name the agent you have with `agent` — `claude-acp` (Claude Code), `codex-acp` (Codex), `gemini` (Gemini CLI), or `antigravity-acp` (Google Antigravity) — or, for any other conforming agent, with `command` and `args`. A known agent fills in the command the row leaves unset.
 
 The template carries no persona, tools, skills, MCP servers, or model route: everything a harness agent would bring is the external agent's own.
 
@@ -14,38 +14,65 @@ The template carries no persona, tools, skills, MCP servers, or model route: eve
 
 The [`dsh-agent`](../../core/agent/README.md) machine owns the turn and its steps; this driver owns what happens inside a step. One step is one segment of the external agent's turn: the streamed answer becomes `assistant/chunk` events and one `assistant/message`, attributed to `acp`. When the external agent reports a tool call, the segment's message carries the call, `tool/call` records it, and `tool/result` carries the text it reported — all in the step that made the call, so every result lands beside its call. Speech that follows a tool call opens the next step, and waits for every pending call to report first. An `end_turn` closes the turn as `completed`; `max_tokens` as `max-tokens`; a refusal, a failure, or an agent-side cancellation closes it as an error that carries the stop reason.
 
-| External stop reason | Turn ending |
+A step whose input no person wrote — context a harness plugin injected while no external turn was open — starts no external turn: it is logged and the step completes at once.
+
+| Failure | Turn ending |
 |---|---|
-| `end_turn` | `completed` |
-| `max_tokens` | `max-tokens` |
-| `cancelled`, with the turn cancelled here | `aborted` |
-| `refusal`, `max_turn_requests`, `error`, unknown | `error` (`ACP_TURN`) |
 | A broken connection or a failed start | `error` (`ACP_TURN`); the next turn starts a fresh process |
+| A sign-in nobody completes | `error` (`ACP_TURN`), naming the method or the program to run |
+| A credential reference nobody stored | `error` (`ACP_CREDENTIAL`), naming the reference |
+| A session with no workspace and no configured `cwd` | `error` (`ACP_NO_CWD`), rather than binding the agent to the server's launch directory |
+
+## Sign-in
+
+The agent is asked to sign in only when it refuses a request for that reason, so an agent that is signed in already is never asked. The method completed is the one `authMethod` names, else the first agent-driven method the agent advertises, else the first terminal one. A browser sign-in the agent drives itself runs inside the turn that needed it; each address the agent prints while it waits lands in the transcript as a notice. A terminal sign-in becomes a question that names the program to run once, in a terminal, and waits until the person says it is done; without a user-questions seam the turn fails and names the program instead.
+
+## The external session
+
+The first turn opens a session on the agent and records it in the session log as `acp/session`: the agent's session id, how it was launched, and the working directory. When the harness reopens the session, the next turn reattaches to that external session while the agent still holds it and advertises resume; the harness transcript stays either way. An agent that no longer holds the session gets a fresh one, and the transcript says so. A fork inherits its parent's events but none of its own, so it opens an external session of its own. `resume: false` opens a fresh external session at every harness start.
+
+## What the agent reports
+
+| Report | Where it goes |
+|---|---|
+| Plan | The session's standing todo list (`todo/write`), the list the conversation shows; each report replaces it whole. |
+| Title | The session title, until the person names the session themselves. |
+| Notice | A notice in the transcript; it starts no external turn. |
+| Question | A question to the person through the user-questions seam, answered field by field; what was asked and answered is recorded as one completed `acp_question` call beside the agent's tool calls. Without the seam the question is declined. |
+| Mode, options, commands | Kept for the `acp` commands, and replaced by every later report. |
+| Usage | Not surfaced; the harness has no record for an external agent's context accounting. |
+
+## The acp commands
+
+The row registers three commands for the sessions it drives. `/acp` shows the external agent, its session, its modes, its options, and the commands it offers inside a prompt. `/acp-mode <mode>` switches the session's mode. `/acp-option <option> <value>` sets one option — a model, an effort, a speed — by id or by name, with `true`/`false` for a boolean one; without a value it shows the option as it stands. A switch reaches the agent through `session/set_mode` or `session/set_config_option` and is refused when the agent does not offer it.
 
 ## Configuration
 
 | Key | Default | Meaning |
 |---|---|---|
-| `command` | required | Executable that serves the external agent over stdio. |
-| `args` | `[]` | Arguments passed to `command`. |
+| `agent` | none | A known agent — `claude-acp`, `codex-acp`, `gemini`, or `antigravity-acp` — whose command and arguments fill in what the row leaves unset. |
+| `command` | a known agent's | Executable that serves the external agent over stdio. Required unless `agent` names a known one. |
+| `args` | a known agent's, else `[]` | Arguments passed to `command`. |
 | `env` | `{}` | Environment variables added on top of the subprocess seam's scrubbed parent environment. |
+| `credentialEnv` | `{}` | Environment variable → credential reference. Each reference is resolved through the credentials service at every start and handed to the agent as that variable, so no key is written into the preset. |
 | `cwd` | each session's workspace | Working directory of the external process and its session. A relative path resolves against the harness launch directory at load. |
 | `protocol` | `1` | ACP version requested at the handshake: `1`, or `2` with a v1 fallback. |
+| `authMethod` | the agent's first | Id of the sign-in method this row completes when the agent demands sign-in. |
+| `resume` | `true` | Whether a reopened harness session reattaches to the external session its log records. |
 | `permission` | `ask` | `ask` routes each permission request through the approval seam and fails closed without an answerer; `allow` takes the agent's first allow option; `reject` declines every request. |
 
 ```yaml
 - id: agent-acp
   name: '@deepseek-ai/dsh-agent-acp'
   config:
-    command: claude
-    args: [acp]
+    agent: claude-acp
     env: {}
     permission: ask
 ```
 
 ## Process lifetime
 
-The external process starts at the first step and serves every later turn of that agent. It is reaped when the agent's scope unwinds, and a process that exits on its own is replaced by a fresh one at the next turn. Its stderr stays on the harness's own stderr. A session with no workspace and no configured `cwd` fails its first turn with `ACP_NO_CWD` instead of binding the agent to the server's launch directory.
+The external process starts at the first step and serves every later turn of that agent. It is reaped when the agent's scope unwinds, and a process that exits on its own is replaced by a fresh one at the next turn. Its stderr stays on the harness's own stderr; the addresses it prints during a sign-in are read from it on the way.
 
 The package has no default export. Cordis loader unwrapping would otherwise hide the named `inject` metadata; see [postmortem 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
 
@@ -55,7 +82,7 @@ The package has no default export. Cordis loader unwrapping would otherwise hide
 
 #### What the model sees
 
-Only the text the person wrote, as the prompt of the external agent's turn. Context that harness plugins inject into the session log is not forwarded: the external agent owns its context. A step without person-written text sends the placeholder `(no text content)`.
+Only the text the person wrote, as the prompt of the external agent's turn. Context that harness plugins inject into the session log is not forwarded: the external agent owns its context. A person's message without text sends the placeholder `(no text content)`.
 
 #### Token effect
 
@@ -67,9 +94,11 @@ Independent of every harness request cache. Reuse depends on the external agent'
 
 ## Known Limitations and Deferred Work
 
-- **The external session does not survive a restart** — nothing records the agent's session id, so a restarted harness opens a fresh external session while the harness transcript stays; durable resume needs a session event of its own.
-- **Only person-written text is forwarded** — attachments and context injected by harness plugins stay in the harness log and never reach the external agent.
+- **Only person-written text is forwarded** — attachments stay in the harness log and never reach the external agent.
 - **Tool results carry text only** — a call's `content` items contribute their text and nothing else; a call that reported none falls back to its title.
 - **Images and audio from the agent are dropped** — only text and thought chunks are written; non-text output needs an attachment reference this driver cannot mint.
-- **Plans, notices, usage, and session titles are not surfaced** — they arrive from the client core and are consumed without a durable record.
+- **A reopened session keeps the title it had** — the agent's later title changes are applied only while the session still carries a generated one, because an applied title is stored as an explicit rename, which a person's own rename also is.
+- **A plan kept as a document is not shown** — a `plan_update` whose content is Markdown has no todo list to show; only an entry list is.
 - **One external agent per preset** — choosing among several at session creation needs a preset copy per agent.
+- **The `todos` list has one unit** — a composition that mounts the todo tool must leave this row's list out, and the other way round.
+- **No attachment, filesystem, terminal, or MCP passthrough** — the client advertises none of these capabilities, so the agent reads and writes its own process's files.

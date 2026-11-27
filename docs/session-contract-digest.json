@@ -3,6 +3,7 @@
   "policy": "v0-additive-only",
   "sessionFormatVersion": 0,
   "eventTypes": [
+    "acp/session",
     "agent/inbox/spliced",
     "approval/asked",
     "approval/decided",
@@ -66,6 +67,7 @@
     "user/message"
   ],
   "eventPayloads": {
+    "acp/session": "AcpSessionEventData",
     "agent/inbox/spliced": "{ target: InboxTarget; start: number; removedCount?: number; inserted: UserMessage[]; outcome?: 'canceled' }",
     "approval/asked": "{ id: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }",
     "approval/decided": "{ id: ApprovalRequestId; outcome: ApprovalOutcome }",

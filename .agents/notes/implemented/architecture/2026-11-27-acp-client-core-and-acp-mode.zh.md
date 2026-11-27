@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-11-27-acp-client-core-and-acp-mode.md) | 中文
 
+> 同日由[按需的 ACP 登录、持久化的外部会话绑定，以及 agent 报告的内容](../feature/2026-11-27-acp-sign-in-session-binding-and-agent-state.md)修订：客户端在 agent 首次要求时完成登录，ACP 模式记录外部会话并在重新打开时重新接入。本 note 中与此相悖之处，描述的是首个版本。
+
 ## Problem
 
 Harniverse 过去只能以两种方式使用 Agent Client Protocol：作为供自动化客户端驱动的服务器，以及作为一次性 subagent 后端——后者的协议代码与 subagent 契约融合在一起。两者都停留在 SDK 0.25.1。没有任何办法让人打开一个由外部 agent（Claude Code、Codex、Gemini CLI、Antigravity）担任主 agent 的会话并由 Harniverse 充当前端，而那个 subagent 后端也无法为此复用：它的进程、握手、权限策略与回收，都和 `SubagentResult` 的映射一起待在同一个模块里。

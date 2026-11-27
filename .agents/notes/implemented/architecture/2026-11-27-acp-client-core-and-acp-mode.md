@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-11-27-acp-client-core-and-acp-mode.zh.md)
 
+> Revised the same day by [ACP sign-in on demand, a durable external-session binding, and what the agent reports](../feature/2026-11-27-acp-sign-in-session-binding-and-agent-state.md): the client completes sign-in when the agent first demands it, and ACP mode records the external session and reattaches to it on reopen. Where this note says otherwise, it describes the first release.
+
 ## Problem
 
 Harniverse could speak the Agent Client Protocol only as a server that automation clients drive, and as a one-shot subagent backend whose protocol code was fused into the subagent contract. Both sat on SDK 0.25.1. Nothing let a person open a session whose main agent is an external one — Claude Code, Codex, Gemini CLI, Antigravity — with Harniverse as the frontend, and the subagent backend could not be reused for that: its process, handshake, permission policy, and teardown lived beside the `SubagentResult` mapping in one module.

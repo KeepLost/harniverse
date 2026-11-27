@@ -40,8 +40,7 @@ describe('ACP mode through a real cordis.yml and a copied preset template', () =
         const composition = join(cwd, 'presets', 'acp', 'agent.cordis.yml')
         const yaml = readFileSync(composition, 'utf8')
         const replaced = yaml
-          .replace('    command: claude\n', `    command: ${JSON.stringify(process.execPath)}\n`)
-          .replace('    args:\n      - acp\n', `    args: ${JSON.stringify([fakeAgent])}\n`)
+          .replace('    agent: claude-acp\n', `    command: ${JSON.stringify(process.execPath)}\n    args: ${JSON.stringify([fakeAgent])}\n`)
           .replace('    env: {}\n', `    env:\n      ACP_FAKE_SCENARIO: ${JSON.stringify(join(cwd, 'scenario.json'))}\n      ACP_FAKE_LOG: ${JSON.stringify(join(cwd, 'log.jsonl'))}\n`)
         if (replaced === yaml) throw new Error('the preset template changed: the composition test no longer finds its anchors')
         writeFileSync(composition, replaced)
@@ -53,7 +52,7 @@ describe('ACP mode through a real cordis.yml and a copied preset template', () =
         const report = JSON.parse(readFileSync(join(cwd, 'report.json'), 'utf8')) as Report
         // The composition's own title record is written whenever its title service settles.
         expect(report.types.filter(type => type !== 'session/title')).toEqual([
-          'turn/start', 'step/start', 'user/message', 'user/message', 'assistant/chunk', 'assistant/chunk',
+          'turn/start', 'step/start', 'user/message', 'user/message', 'acp/session', 'assistant/chunk', 'assistant/chunk',
           'assistant/message', 'step/end', 'turn/end',
         ])
         // Harness plugins still inject their context into the log; only the person's text reaches the external agent.
