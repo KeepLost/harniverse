@@ -3,7 +3,7 @@
  * handshake can fail, against the in-memory fake agent.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { RequestError, type InitializeResponse } from '@agentclientprotocol/sdk'
+import { RequestError } from '@agentclientprotocol/sdk'
 import { AcpError, connectAcpAgent } from '../src/index.ts'
 import type { AcpConnectOptions, AcpProfileCustomize, AcpProtocol } from '../src/index.ts'
 import { attachV1, fakeSeam, type FakeProcess, type Received, type V1Script } from './fake-agent.ts'
@@ -144,53 +144,24 @@ describe('protocol negotiation', () => {
   })
 })
 
-describe('authentication', () => {
-  const withMethods = (authMethods: unknown[]): InitializeResponse => ({
-    protocolVersion: 1,
-    agentCapabilities: {},
-    authMethods: authMethods as NonNullable<InitializeResponse['authMethods']>,
-  })
-
-  it('completes the first agent-driven method before the connection is returned', async () => {
+describe('sign-in', () => {
+  it('connects without signing in and reports the methods the agent offers', async () => {
     const { connect, received } = harness({
-      initialize: () => withMethods([{ id: 'terminal-login', type: 'terminal', name: 'Terminal' }, { id: 'agent-login' }]),
+      initialize: () => ({
+        protocolVersion: 1,
+        agentCapabilities: {},
+        authMethods: [{ id: 'agent-login', name: 'Login' }, { id: 'terminal-login', name: 'Terminal', type: 'terminal', args: ['--login'] }],
+      }),
     })
     const connection = await connect()
-    expect(received.map(entry => entry.method)).toEqual(['initialize', 'authenticate'])
-    expect(received[1]?.params).toEqual({ methodId: 'agent-login' })
+    await connection.newSession()
+    // An agent that refuses nothing is signed in already; it is never asked.
+    expect(received.map(entry => entry.method)).toEqual(['initialize', 'session/new'])
+    expect(connection.agent.authMethods).toEqual([
+      { id: 'agent-login', name: 'Login', kind: 'agent' },
+      { id: 'terminal-login', name: 'Terminal', kind: 'terminal', args: ['--login'] },
+    ])
     await connection.dispose()
-  })
-
-  it('refuses an agent that only offers terminal sign-in', async () => {
-    const { seam, connect } = harness({ initialize: () => withMethods([{ id: 'terminal-login', type: 'terminal' }]) })
-    await expect(connect()).rejects.toMatchObject({
-      kind: 'auth',
-      message: 'the agent only offers interactive terminal sign-in (terminal-login); sign in with the agent\'s own program once, outside the harness',
-    })
-    await expectReaped(seam)
-  })
-
-  it('surfaces a rejected authentication', async () => {
-    const { seam, connect } = harness({
-      initialize: () => withMethods([{ id: 'agent-login' }]),
-      authenticate: () => { throw new RequestError(-32000, 'Authentication required') },
-    })
-    await expect(connect()).rejects.toMatchObject({ kind: 'auth', code: -32000 })
-    await expectReaped(seam)
-  })
-
-  it('cancels an authentication that never answers', async () => {
-    const { seam, connect } = harness({
-      initialize: () => withMethods([{ id: 'agent-login' }]),
-      authenticate: () => new Promise(() => {}),
-    })
-    const controller = new AbortController()
-    const failed = connect({ signal: controller.signal }).catch((caught: unknown) => caught as AcpError)
-    await vi.waitFor(() => { expect(seam.processes[0]?.stdout.readableLength).toBeGreaterThanOrEqual(0) })
-    await new Promise(resolve => setTimeout(resolve, 20))
-    controller.abort()
-    expect(await failed).toMatchObject({ kind: 'transport' })
-    await expectReaped(seam)
   })
 })
 

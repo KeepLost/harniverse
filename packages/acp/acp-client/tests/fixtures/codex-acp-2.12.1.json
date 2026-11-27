@@ -1,0 +1,136 @@
+{
+  "recorded": "2026-11-27",
+  "package": "@agentclientprotocol/codex-acp@2.12.1",
+  "initialize": {
+    "plain": {
+      "protocolVersion": 1,
+      "agentInfo": {
+        "name": "@agentclientprotocol/codex-acp",
+        "title": "Codex",
+        "version": "2.12.1"
+      },
+      "agentCapabilities": {
+        "auth": {
+          "logout": {},
+          "status": {}
+        },
+        "providers": {},
+        "loadSession": true,
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "resume": {},
+          "list": {},
+          "close": {},
+          "delete": {},
+          "fork": {},
+          "options": {},
+          "title": {},
+          "additionalDirectories": {},
+          "systemPrompt": {}
+        },
+        "mcpCapabilities": {
+          "acp": true,
+          "http": true,
+          "sse": false
+        },
+        "_meta": {
+          "authStatus": {}
+        }
+      },
+      "authMethods": [
+        {
+          "id": "api-key",
+          "name": "API Key",
+          "description": "Use an API key to authenticate",
+          "_meta": {
+            "api-key": {
+              "provider": "openai"
+            }
+          }
+        },
+        {
+          "id": "chat-gpt",
+          "name": "ChatGPT",
+          "description": "Use ChatGPT to authenticate"
+        }
+      ],
+      "_meta": {
+        "steering": {
+          "supported": true
+        }
+      }
+    },
+    "terminalAuth": {
+      "protocolVersion": 1,
+      "agentInfo": {
+        "name": "@agentclientprotocol/codex-acp",
+        "title": "Codex",
+        "version": "2.12.1"
+      },
+      "agentCapabilities": {
+        "auth": {
+          "logout": {},
+          "status": {}
+        },
+        "providers": {},
+        "loadSession": true,
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "resume": {},
+          "list": {},
+          "close": {},
+          "delete": {},
+          "fork": {},
+          "options": {},
+          "title": {},
+          "additionalDirectories": {},
+          "systemPrompt": {}
+        },
+        "mcpCapabilities": {
+          "acp": true,
+          "http": true,
+          "sse": false
+        },
+        "_meta": {
+          "authStatus": {}
+        }
+      },
+      "authMethods": [
+        {
+          "id": "api-key",
+          "name": "API Key",
+          "description": "Use an API key to authenticate",
+          "_meta": {
+            "api-key": {
+              "provider": "openai"
+            }
+          }
+        },
+        {
+          "id": "chat-gpt",
+          "name": "ChatGPT",
+          "description": "Use ChatGPT to authenticate"
+        }
+      ],
+      "_meta": {
+        "steering": {
+          "supported": true
+        }
+      }
+    }
+  },
+  "sessionNew": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "error": {
+      "code": -32000,
+      "message": "Authentication required"
+    }
+  }
+}

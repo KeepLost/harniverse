@@ -9,7 +9,11 @@ import {
   AcpError,
   acpErrorKindForCode,
   allowAnswer,
+  isAcpAuthRequired,
   isAcpError,
+  isAcpNotFound,
+  KNOWN_AGENTS,
+  knownAgent,
   policyAnswerer,
   rejectAnswerer,
   selectProfile,
@@ -97,5 +101,37 @@ describe('invariant companion', () => {
     expect(Invariant.name).toBe('acp-client-invariant')
     expect(Invariant.inject).toEqual(['invariants'])
     await ctx.fiber.dispose()
+  })
+})
+
+describe('agent answers a request can be told by', () => {
+  it('names the sign-in demand and the missing session by the agent\'s own code', () => {
+    const refused = new AcpError('auth', 'Authentication required', { code: -32000 })
+    const gone = new AcpError('protocol', 'Resource not found', { code: -32002 })
+    const other = new AcpError('protocol', 'Invalid params', { code: -32602 })
+    expect(isAcpAuthRequired(refused)).toBe(true)
+    expect(isAcpAuthRequired(gone)).toBe(false)
+    expect(isAcpAuthRequired(new Error('Authentication required'))).toBe(false)
+    expect(isAcpNotFound(gone)).toBe(true)
+    expect(isAcpNotFound(other)).toBe(false)
+    expect(isAcpNotFound({ code: -32002 })).toBe(false)
+  })
+})
+
+describe('the known agents', () => {
+  it('launch each one over stdio and say how it signs in', () => {
+    expect(KNOWN_AGENTS.map(agent => [agent.id, agent.command, agent.args])).toEqual([
+      ['claude-acp', 'npx', ['-y', '@agentclientprotocol/claude-agent-acp']],
+      ['codex-acp', 'npx', ['-y', '@agentclientprotocol/codex-acp']],
+      ['gemini', 'npx', ['-y', '@google/gemini-cli', '--acp']],
+      ['antigravity-acp', 'agy', ['acp']],
+    ])
+    for (const agent of KNOWN_AGENTS) {
+      expect(agent.name).not.toBe('')
+      expect(agent.signIn).not.toBe('')
+    }
+    expect(knownAgent('codex-acp')?.credentialEnv).toEqual(['CODEX_API_KEY', 'OPENAI_API_KEY'])
+    expect(knownAgent('claude-acp')?.agentNames).toEqual(['@agentclientprotocol/claude-agent-acp'])
+    expect(knownAgent('nobody')).toBeUndefined()
   })
 })

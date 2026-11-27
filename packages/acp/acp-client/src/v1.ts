@@ -1,7 +1,8 @@
 /**
  * Wire shapes of ACP v1, the stable protocol. v1 answers `session/prompt` with
- * the turn's stop reason, and an agent that can resume a saved session
- * advertises either `loadSession` or `session/resume`.
+ * the turn's stop reason, an agent that can resume a saved session advertises
+ * either `loadSession` or `session/resume`, and modes are switched through
+ * `session/set_mode`.
  * @module @deepseek-ai/dsh-acp-client/v1
  */
 
@@ -37,12 +38,20 @@ export const V1: ProtocolShape = {
   version: 1,
   authenticate: 'authenticate',
   completion: 'response',
-  initialize: client => ({
+  initialize: (client, capabilities) => ({
     protocolVersion: 1,
-    clientCapabilities: {},
+    clientCapabilities: {
+      // What this client reads off the wire whatever a consumer does with it.
+      session: { configOptions: { boolean: {} }, notices: {} },
+      plan: {},
+      ...capabilities.elicitation ? { elicitation: { form: {} } } : {},
+      ...capabilities.terminalAuth ? { auth: { terminal: true } } : {},
+    },
     clientInfo: { name: client.name, version: client.version },
   }),
   newSession: cwd => ({ cwd, mcpServers: [] }),
+  setMode: (sessionId, modeId) => ({ method: 'session/set_mode', params: { sessionId, modeId } }),
+  configValue: value => typeof value === 'boolean' ? { type: 'boolean', value } : { value },
   resume: (response, sessionId, cwd) => usesLoadSession(response)
     ? { method: 'session/load', params: { sessionId, cwd, mcpServers: [] } }
     : { method: 'session/resume', params: { sessionId, cwd } },

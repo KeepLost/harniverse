@@ -1,13 +1,21 @@
 /**
- * The connection: negotiation, handshake, authentication, session and turn
- * routing, and disposal over one agent process. This is the version-neutral
- * core every consumer programs against.
+ * The connection: negotiation, handshake, sign-in on the agent's demand,
+ * session and turn routing, session options, and disposal over one agent
+ * process. This is the version-neutral core every consumer programs against.
  * @module @deepseek-ai/dsh-acp-client/connection
  */
 
 import type { SubprocessSpawnSpec, SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
-import { openBinding, type AcpBinding, type AcpClientInfo, type AcpHandshake, type BindingHandlers } from './binding.ts'
-import { AcpError, toAcpError } from './errors.ts'
+import {
+  openBinding,
+  type AcpBinding,
+  type AcpClientCapabilities,
+  type AcpClientInfo,
+  type AcpSessionSetup,
+  type RawTurnEnd,
+  type BindingHandlers,
+} from './binding.ts'
+import { AcpError, isAcpAuthRequired, toAcpError } from './errors.ts'
 import { rejectAnswerer } from './permission.ts'
 import { selectProfile } from './profile.ts'
 import {
@@ -21,6 +29,9 @@ import type {
   AcpAgentDefinition,
   AcpAgentInfo,
   AcpAgentProfile,
+  AcpCommand,
+  AcpConfigOption,
+  AcpConfigValue,
   AcpConnection,
   AcpExit,
   AcpPermissionAnswer,
@@ -28,8 +39,13 @@ import type {
   AcpPromptBlock,
   AcpPromptOptions,
   AcpProtocol,
+  AcpQuestionAnswer,
+  AcpQuestionAnswerer,
   AcpSession,
   AcpSessionInfo,
+  AcpSessionModes,
+  AcpSessionRequestOptions,
+  AcpSignInHooks,
   AcpTurn,
   AcpTurnEnd,
   AcpUpdate,
@@ -47,12 +63,16 @@ export interface AcpConnectOptions {
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /** Answers the agent's permission requests. Omitted answers decline every request. */
   readonly permission?: AcpPermissionAnswerer
+  /** Answers the agent's questions. Omitted declines every question. */
+  readonly questions?: AcpQuestionAnswerer
+  /** What to do for the person while the agent waits for its sign-in. */
+  readonly signIn?: AcpSignInHooks
   /** Profiles the consumer supplies, in precedence order. */
   readonly profiles?: readonly AcpAgentProfile[]
   readonly clientInfo?: AcpClientInfo
   readonly disposeEofGraceMs?: number
   readonly disposeGraceMs?: number
-  /** Cancels the handshake, the authentication, or the v2-to-v1 fallback; ignored afterwards. */
+  /** Cancels the handshake or the v2-to-v1 fallback; ignored afterwards. */
   readonly signal?: AbortSignal
 }
 
@@ -70,9 +90,18 @@ interface Live {
   turn: Turn | undefined
   /** A turn waiting for the previous one to go quiet before its prompt is sent. */
   pending: Turn | undefined
+  /** The options the agent last reported for the session. */
+  modes: AcpSessionModes | undefined
+  configOptions: readonly AcpConfigOption[] | undefined
+  commands: readonly AcpCommand[] | undefined
 }
 
 const CANCELLED: AcpPermissionAnswer = { outcome: { outcome: 'cancelled' } }
+const DECLINE: AcpQuestionAnswer = { action: 'decline' }
+const CANCEL_QUESTION: AcpQuestionAnswer = { action: 'cancel' }
+
+/** A browser address inside one line of the agent's diagnostics. */
+const URL_PATTERN = /https?:\/\/[^\s"'<>]+/g
 
 /** One prompt exchange: an ordered update stream and its end. */
 class Turn implements AcpTurn {
@@ -139,7 +168,12 @@ class Turn implements AcpTurn {
   }
 }
 
-function openAttempt(options: AcpConnectOptions, version: AcpProtocol, handlers: BindingHandlers): Attempt {
+function openAttempt(
+  options: AcpConnectOptions,
+  version: AcpProtocol,
+  capabilities: AcpClientCapabilities,
+  handlers: BindingHandlers,
+): Attempt {
   const child = spawnAcpChild({
     definition: options.definition,
     cwd: options.cwd,
@@ -147,7 +181,7 @@ function openAttempt(options: AcpConnectOptions, version: AcpProtocol, handlers:
     disposeEofGraceMs: options.disposeEofGraceMs ?? DEFAULT_DISPOSE_EOF_GRACE_MS,
     disposeGraceMs: options.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS,
   })
-  const binding = openBinding(version, child.io, options.cwd, options.clientInfo ?? DEFAULT_CLIENT_INFO, handlers)
+  const binding = openBinding(version, child.io, options.cwd, options.clientInfo ?? DEFAULT_CLIENT_INFO, capabilities, handlers)
   const broken = Promise.race([
     child.failed,
     binding.closed.then((): never => { throw new AcpError('transport', 'the agent closed the connection') }),
@@ -164,7 +198,7 @@ function openAttempt(options: AcpConnectOptions, version: AcpProtocol, handlers:
  */
 function observeIgnored(): void {}
 
-/** The setup failure a cancelled handshake, authentication, or fallback rejects with. */
+/** The setup failure a cancelled handshake, sign-in, or fallback rejects with. */
 function abortError(): AcpError {
   return new AcpError('transport', 'the connection setup was cancelled')
 }
@@ -194,13 +228,44 @@ async function release(attempt: Attempt): Promise<void> {
   await attempt.child.dispose()
 }
 
-/** Complete the one authentication flow this client can drive. */
-async function authenticate(attempt: Attempt, handshake: AcpHandshake, signal: AbortSignal | undefined): Promise<void> {
-  const method = handshake.authMethods.find(candidate => !candidate.terminal)
-  if (method === undefined) {
-    throw new AcpError('auth', `the agent only offers interactive terminal sign-in (${handshake.authMethods.map(candidate => candidate.id).join(', ')}); sign in with the agent's own program once, outside the harness`)
+/**
+ * Report every browser address the agent prints, once each, until the sign-in
+ * ends. A consumer that shows none is not called.
+ * @param diagnostics - the agent's stderr.
+ * @param report - where an address goes.
+ * @returns what stops the watch.
+ */
+function watchUrls(diagnostics: AsyncIterable<string>, report: ((url: string) => void) | undefined): () => void {
+  if (report === undefined) {
+    /* v8 ignore next -- a connection without the hook never starts a watch */
+    return () => {}
   }
-  await settleSetup(attempt, signal, () => attempt.binding.authenticate(method.id))
+  const stopped = new AbortController()
+  const seen = new Set<string>()
+  void (async (): Promise<void> => {
+    for await (const line of diagnostics) {
+      if (stopped.signal.aborted) return
+      for (const match of line.matchAll(URL_PATTERN)) {
+        if (seen.has(match[0])) continue
+        seen.add(match[0])
+        report(match[0])
+      }
+    }
+  })().catch(() => {
+    // The diagnostics ended or have a reader; the sign-in reports its own outcome.
+  })
+  return () => { stopped.abort() }
+}
+
+/** The modes with another one in effect; a report before any offered list names no available mode. */
+function withCurrentMode(modes: AcpSessionModes | undefined, currentModeId: string): AcpSessionModes {
+  return modes === undefined ? { current: currentModeId, available: [] } : { ...modes, current: currentModeId }
+}
+
+/** Fold what one setup response reported into the session's state. */
+function applySetup(live: Live, setup: AcpSessionSetup): void {
+  if (setup.modes !== undefined) live.modes = setup.modes
+  if (setup.configOptions !== undefined) live.configOptions = setup.configOptions
 }
 
 /** One connected agent process. */
@@ -209,10 +274,14 @@ class Connection implements AcpConnection {
   private readonly sessions = new Map<string, Live>()
   private readonly handles = new Map<string, AcpSession>()
   private disposal: Promise<void> | undefined
+  /** The sign-in this connection is completing, shared by every request that demands it. */
+  private signingIn: Promise<void> | undefined
   readonly exited: Promise<AcpExit>
 
   private constructor(
     private readonly attempt: Attempt,
+    private readonly definition: AcpAgentDefinition,
+    private readonly hooks: AcpSignInHooks | undefined,
     readonly protocol: AcpProtocol,
     readonly agent: AcpAgentInfo,
   ) {
@@ -220,17 +289,22 @@ class Connection implements AcpConnection {
     void attempt.broken.then(undefined, (error: unknown) => { this.fail(toAcpError('transport', error)) })
   }
 
-  /** Negotiate, authenticate, and return the live connection; every failure reaps what it started. */
+  /** Negotiate and return the live connection; every failure reaps what it started. */
   static async open(options: AcpConnectOptions): Promise<AcpConnection> {
     // Nothing starts for a setup that is already cancelled, or for a pinned
     // profile nobody supplied: both are known before any process exists.
+    const capabilities: AcpClientCapabilities = {
+      elicitation: options.questions !== undefined,
+      terminalAuth: options.signIn?.terminal !== undefined,
+    }
     const start = (version: AcpProtocol): Attempt => {
       if (options.signal?.aborted === true) throw abortError()
-      return openAttempt(options, version, handlers)
+      return openAttempt(options, version, capabilities, handlers)
     }
     const pinned = selectProfile({ profiles: options.profiles, pinned: options.definition.profile, agentName: undefined })
     const requested = options.definition.protocol ?? 1
     let answerer: AcpPermissionAnswerer = rejectAnswerer
+    let questioner: AcpQuestionAnswerer = declineAnswerer
     let target: Connection | undefined
     const handlers: BindingHandlers = {
       update: (sessionId, update) => {
@@ -239,6 +313,14 @@ class Connection implements AcpConnection {
         target?.route(sessionId, update)
       },
       permission: request => Promise.resolve().then(() => answerer(request)).catch(() => CANCELLED),
+      question: request => Promise.resolve().then(() => questioner(request)).catch(() => CANCEL_QUESTION),
+      link: (url) => {
+        // The hook is read once, so a consumer that shows nothing reports exactly that.
+        const show = options.signIn?.url
+        if (show === undefined) return false
+        show(url)
+        return true
+      },
     }
     let attempt = start(requested)
     try {
@@ -253,18 +335,22 @@ class Connection implements AcpConnection {
       }
       const profile = selectProfile({ profiles: options.profiles, pinned: options.definition.profile, agentName: handshake.name })
       attempt.binding.use(profile?.customize)
-      if (handshake.authMethods.length > 0) await authenticate(attempt, handshake, options.signal)
+      // Sign-in waits for the agent to demand it: one that is already signed in never asks.
       const connection = new Connection(
         attempt,
+        options.definition,
+        options.signIn,
         attempt.binding.version,
         {
           ...handshake.name === undefined ? {} : { name: handshake.name },
           ...handshake.version === undefined ? {} : { version: handshake.version },
           capabilities: handshake.capabilities,
+          authMethods: handshake.authMethods,
         },
       )
       target = connection
       answerer = options.permission ?? rejectAnswerer
+      questioner = options.questions ?? declineAnswerer
       return connection
     } catch (error: unknown) {
       await release(attempt)
@@ -273,7 +359,22 @@ class Connection implements AcpConnection {
   }
 
   private route(sessionId: string, update: AcpUpdate): void {
-    this.sessions.get(sessionId)?.turn?.push(update)
+    const live = this.sessions.get(sessionId)
+    if (live === undefined) return
+    switch (update.kind) {
+      case 'mode':
+        live.modes = withCurrentMode(live.modes, update.currentModeId)
+        break
+      case 'config':
+        live.configOptions = update.configOptions
+        break
+      case 'commands':
+        live.commands = update.commands
+        break
+      default:
+        break
+    }
+    live.turn?.push(update)
   }
 
   /** End every active turn with `error` and stop admitting work. Idempotent. */
@@ -282,27 +383,142 @@ class Connection implements AcpConnection {
     for (const live of this.sessions.values()) live.turn?.fail(error)
   }
 
-  private async guard<T>(operation: () => Promise<T>): Promise<T> {
+  /** Run one agent request, or fail as soon as the connection closes or `signal` aborts. */
+  private async guard<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     if (this.closed) throw new AcpError('transport', 'the agent connection is closed')
+    const aborted = Promise.withResolvers<never>()
+    const onAbort = (): void => { aborted.reject(abortError()) }
+    signal?.addEventListener('abort', onAbort, { once: true })
     try {
-      return await Promise.race([operation(), this.attempt.broken])
+      return await Promise.race([operation(), this.attempt.broken, aborted.promise])
     } catch (error: unknown) {
       throw toAcpError('protocol', error)
+    } finally {
+      signal?.removeEventListener('abort', onAbort)
     }
   }
 
-  private session(sessionId: string): AcpSession {
+  /**
+   * Run one agent request, and complete the agent's sign-in first when it
+   * refuses the request until a person signs in. The wait for the answer and
+   * the sign-in both end when `signal` aborts.
+   */
+  private authenticated<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return this.run(operation, signal, true)
+  }
+
+  /**
+   * Run one prompt, and complete the agent's sign-in first when the agent
+   * refuses it until a person signs in. Only the sign-in waits on `signal`:
+   * a cancelled turn keeps receiving its prompt's answer, because the agent
+   * is not quiet until it gives one.
+   */
+  private prompted(prompt: () => Promise<RawTurnEnd>, signal?: AbortSignal): Promise<RawTurnEnd> {
+    return this.run(prompt, signal, false)
+  }
+
+  private async run<T>(operation: () => Promise<T>, signal: AbortSignal | undefined, cancellable: boolean): Promise<T> {
+    try {
+      return await (cancellable ? this.guard(operation, signal) : this.guard(operation))
+    } catch (error: unknown) {
+      if (!isAcpAuthRequired(error)) throw error
+      await this.signIn(signal)
+      return cancellable ? this.guard(operation, signal) : this.guard(operation)
+    }
+  }
+
+  /**
+   * The sign-in every request refused at the same moment joins. One that
+   * fails is not kept: the next refusal starts a fresh attempt.
+   */
+  private signIn(signal: AbortSignal | undefined): Promise<void> {
+    const attempt = this.signingIn ?? this.runSignIn(signal).then(
+      () => { this.signingIn = undefined },
+      (error: unknown) => {
+        this.signingIn = undefined
+        throw error
+      },
+    )
+    this.signingIn = attempt
+    return attempt
+  }
+
+  private async runSignIn(signal: AbortSignal | undefined): Promise<void> {
+    const methods = this.agent.authMethods
+    const method = methods.find(candidate => candidate.id === this.definition.authMethod)
+      ?? methods.find(candidate => candidate.kind === 'agent')
+      ?? methods[0]
+    if (method === undefined) {
+      throw new AcpError('auth', 'the agent requires sign-in and offers no method here; complete its sign-in once with the agent\'s own program, outside the harness')
+    }
+    if (method.kind === 'terminal') {
+      const args = [...(this.definition.args ?? []), ...(method.args ?? [])]
+      const terminal = this.hooks?.terminal
+      if (terminal === undefined) {
+        throw new AcpError('auth', `the agent only offers interactive terminal sign-in (${methods.map(candidate => candidate.id).join(', ')}); run \`${[this.definition.command, ...args].join(' ')}\` once, outside the harness`)
+      }
+      const completed = await settleSetup(this.attempt, signal, () => terminal({ method, command: this.definition.command, args }, signal))
+      if (!completed) throw new AcpError('auth', `the terminal sign-in "${method.name}" was not completed`)
+      return
+    }
+    const stop = watchUrls(this.attempt.child.diagnostics, this.hooks?.url)
+    try {
+      await settleSetup(this.attempt, signal, () => this.attempt.binding.authenticate(method.id))
+    } finally {
+      stop()
+    }
+  }
+
+  private session(sessionId: string, setup: AcpSessionSetup = {}): AcpSession {
+    const live = this.live(sessionId)
+    applySetup(live, setup)
     const existing = this.handles.get(sessionId)
     if (existing !== undefined) return existing
-    const live = this.sessions.get(sessionId) ?? { turn: undefined, pending: undefined }
-    this.sessions.set(sessionId, live)
     const handle: AcpSession = {
       sessionId,
+      get modes(): AcpSessionModes | undefined { return live.modes },
+      get configOptions(): readonly AcpConfigOption[] | undefined { return live.configOptions },
+      get commands(): readonly AcpCommand[] | undefined { return live.commands },
       prompt: (prompt, promptOptions) => this.openTurn(live, sessionId, prompt, promptOptions),
       cancel: () => this.guard(() => this.attempt.binding.cancel(sessionId)),
+      setMode: (modeId, options) => this.setMode(live, sessionId, modeId, options),
+      setConfigOption: (configId, value, options) => this.setConfigOption(live, sessionId, configId, value, options),
     }
     this.handles.set(sessionId, handle)
     return handle
+  }
+
+  /** The routing state of one session, created on first use. */
+  private live(sessionId: string): Live {
+    let live = this.sessions.get(sessionId)
+    if (live === undefined) {
+      live = { turn: undefined, pending: undefined, modes: undefined, configOptions: undefined, commands: undefined }
+      this.sessions.set(sessionId, live)
+    }
+    return live
+  }
+
+  private async setMode(
+    live: Live,
+    sessionId: string,
+    modeId: string,
+    options: AcpSessionRequestOptions | undefined,
+  ): Promise<AcpSessionModes> {
+    await this.authenticated(() => this.attempt.binding.setMode(sessionId, modeId), options?.signal)
+    live.modes = withCurrentMode(live.modes, modeId)
+    return live.modes
+  }
+
+  private async setConfigOption(
+    live: Live,
+    sessionId: string,
+    configId: string,
+    value: AcpConfigValue,
+    options: AcpSessionRequestOptions | undefined,
+  ): Promise<readonly AcpConfigOption[]> {
+    const setup = await this.authenticated(() => this.attempt.binding.setConfigOption(sessionId, configId, value), options?.signal)
+    applySetup(live, setup)
+    return live.configOptions ?? []
   }
 
   private openTurn(
@@ -345,7 +561,8 @@ class Connection implements AcpConnection {
         if (live.pending !== turn || turn.isFinished) return
         live.turn = turn
         live.pending = undefined
-        const end = await Promise.race([this.attempt.binding.prompt(sessionId, prompt), this.attempt.broken])
+        // A sign-in the agent demands here keeps the turn open until it is completed.
+        const end = await this.prompted(() => this.attempt.binding.prompt(sessionId, prompt), signal)
         turn.finish({ stopReason: toStopReason(end.stopReason), ...end.error === undefined ? {} : { error: end.error } })
       } catch (error: unknown) {
         turn.fail(toAcpError('protocol', error))
@@ -358,16 +575,17 @@ class Connection implements AcpConnection {
     return turn
   }
 
-  newSession(): Promise<AcpSession> {
-    return this.guard(() => this.attempt.binding.newSession()).then(sessionId => this.session(sessionId))
+  async newSession(options?: AcpSessionRequestOptions): Promise<AcpSession> {
+    const { sessionId, ...setup } = await this.authenticated(() => this.attempt.binding.newSession(), options?.signal)
+    return this.session(sessionId, setup)
   }
 
-  async resumeSession(sessionId: string): Promise<AcpSession> {
+  async resumeSession(sessionId: string, options?: AcpSessionRequestOptions): Promise<AcpSession> {
     if (!this.agent.capabilities.resume) {
       throw new AcpError('unsupported', 'the agent did not advertise session resume')
     }
-    await this.guard(() => this.attempt.binding.resumeSession(sessionId))
-    return this.session(sessionId)
+    const setup = await this.authenticated(() => this.attempt.binding.resumeSession(sessionId), options?.signal)
+    return this.session(sessionId, setup)
   }
 
   async listSessions(): Promise<readonly AcpSessionInfo[]> {
@@ -395,12 +613,16 @@ class Connection implements AcpConnection {
   }
 }
 
+/** Answers every question with a refusal; the default of a connection whose consumer asks nothing. */
+const declineAnswerer: AcpQuestionAnswerer = () => DECLINE
+
 /**
- * Start one external agent, negotiate the protocol, authenticate, and return
- * the live connection. Any failure, including a cancelled setup, rejects with
+ * Start one external agent and negotiate the protocol. Sign-in waits for the
+ * agent to demand it. Any failure, including a cancelled setup, rejects with
  * an `AcpError` after the process it started is reaped.
  * @param options - the agent definition, the seam's spawn function, the
- *   working directory, the permission answerer, and the teardown graces.
+ *   working directory, the permission and question answerers, the sign-in
+ *   hooks, and the teardown graces.
  * @returns the connected agent.
  */
 export async function connectAcpAgent(options: AcpConnectOptions): Promise<AcpConnection> {

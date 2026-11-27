@@ -1,7 +1,7 @@
 /**
  * stdio transport for one external ACP agent over the subprocess seam: spawn,
- * protocol streams, startup failure observation, and the cooperative teardown
- * ladder. The agent's diagnostics stay on the parent's stderr.
+ * protocol streams, startup failure observation, the agent's diagnostics as
+ * lines, and the cooperative teardown ladder.
  * @module @deepseek-ai/dsh-acp-client/transport
  */
 
@@ -30,9 +30,81 @@ export interface AcpIo {
   readonly outputClosed: Promise<void>
 }
 
+/** The most lines kept for a reader that arrives after the agent printed them. */
+const DIAGNOSTIC_LINE_LIMIT = 200
+
+/** The longest run of bytes without a line end kept before it is offered as a line. */
+const DIAGNOSTIC_RUN_LIMIT = 8192
+
+/**
+ * The agent's diagnostics, line by line: what it printed before a reader
+ * arrived first, then what it prints live.
+ */
+class Diagnostics {
+  private readonly buffered: string[] = []
+  private pending: PromiseWithResolvers<IteratorResult<string, undefined>> | undefined
+  private rest = ''
+  private ended = false
+  private taken = false
+  /** The one reader of these diagnostics; a second iterator is refused. */
+  readonly lines: AsyncIterable<string> = {
+    [Symbol.asyncIterator]: () => {
+      if (this.taken) throw new Error('acp-client: the agent diagnostics have one reader')
+      this.taken = true
+      return {
+        next: () => this.next(),
+        return: () => Promise.resolve({ value: undefined, done: true }),
+      }
+    },
+  }
+
+  private offer(line: string): void {
+    const pending = this.pending
+    if (pending !== undefined) {
+      this.pending = undefined
+      pending.resolve({ value: line, done: false })
+      return
+    }
+    this.buffered.push(line)
+    if (this.buffered.length > DIAGNOSTIC_LINE_LIMIT) this.buffered.shift()
+  }
+
+  /** Add one chunk of the agent's stderr. */
+  push(chunk: Buffer): void {
+    this.rest += chunk.toString('utf8')
+    let at: number
+    while ((at = this.rest.indexOf('\n')) >= 0) {
+      this.offer(this.rest.slice(0, at))
+      this.rest = this.rest.slice(at + 1)
+    }
+    if (this.rest.length >= DIAGNOSTIC_RUN_LIMIT) {
+      this.offer(this.rest)
+      this.rest = ''
+    }
+  }
+
+  /** The agent's stderr ended; a reader waiting for a line is released. */
+  end(): void {
+    if (this.rest !== '') this.offer(this.rest)
+    this.rest = ''
+    this.ended = true
+    this.pending?.resolve({ value: undefined, done: true })
+    this.pending = undefined
+  }
+
+  private next(): Promise<IteratorResult<string, undefined>> {
+    const line = this.buffered.shift()
+    if (line !== undefined) return Promise.resolve({ value: line, done: false })
+    if (this.ended) return Promise.resolve({ value: undefined, done: true })
+    return (this.pending ??= Promise.withResolvers<IteratorResult<string, undefined>>()).promise
+  }
+}
+
 /** A spawned agent process with the ways to observe and end it. */
 export interface AcpChild {
   readonly io: AcpIo
+  /** The agent's stderr, line by line; a handle that exposed no stderr reports none. */
+  readonly diagnostics: AsyncIterable<string>
   /**
    * Rejects with an `AcpError` of kind `spawn` when the process could not
    * start. It never settles when the process exits cleanly.
@@ -53,6 +125,8 @@ export interface SpawnAcpChildOptions {
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   readonly disposeEofGraceMs: number
   readonly disposeGraceMs: number
+  /** Receives the agent's stderr as it arrives; the default copies it onto this process's stderr. */
+  readonly copyDiagnostics?: (chunk: Buffer) => void
 }
 
 /** Bounded whole-tree exit wait: polls the handle's tree liveness until it exits or `ms` elapses. */
@@ -105,7 +179,7 @@ export function spawnAcpChild(options: SpawnAcpChildOptions): AcpChild {
   const child = options.spawn({
     argv: [definition.command, ...(definition.args ?? [])],
     cwd: options.cwd,
-    stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
+    stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' },
     graceMs: options.disposeGraceMs,
     env: definition.env === undefined ? {} : { ...definition.env },
   })
@@ -115,11 +189,14 @@ export function spawnAcpChild(options: SpawnAcpChildOptions): AcpChild {
   }
   /* v8 ignore stop */
   // The output's end is reported from the stream itself: a write queued when
-  // the stream dies can settle normally on some Node releases.
+  // the stream dies can settle normally on some Node releases. Every later
+  // failure of a stream the agent left behind needs a listener as well: one
+  // write past its death is one error event, and an unobserved one ends this
+  // process.
   const outputClosed = Promise.withResolvers<void>()
   const closeOutput = (): void => { outputClosed.resolve() }
   child.stdin.once('close', closeOutput)
-  child.stdin.once('error', closeOutput)
+  child.stdin.on('error', closeOutput)
   // A failed start surfaces as `done` rejecting; a clean exit must never
   // settle `failed`, so the success arm parks forever.
   const failed: Promise<never> = child.done.then(
@@ -130,6 +207,20 @@ export function spawnAcpChild(options: SpawnAcpChildOptions): AcpChild {
   void failed.catch(() => {
     // The failure is observed by whoever races it; this keeps it never unhandled.
   })
+  const diagnostics = new Diagnostics()
+  // A sign-in address reaches the person only through what the agent prints.
+  const copy = options.copyDiagnostics ?? ((chunk: Buffer): void => { process.stderr.write(chunk) })
+  const stderr = child.stderr
+  if (stderr !== undefined) {
+    stderr.on('data', (chunk: Buffer) => {
+      copy(chunk)
+      diagnostics.push(chunk)
+    })
+    stderr.once('end', () => { diagnostics.end() })
+    stderr.on('error', () => { diagnostics.end() })
+  } else {
+    diagnostics.end()
+  }
   let disposal: Promise<void> | undefined
   return {
     io: {
@@ -137,6 +228,7 @@ export function spawnAcpChild(options: SpawnAcpChildOptions): AcpChild {
       input: NodeReadable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
       outputClosed: outputClosed.promise,
     },
+    diagnostics: diagnostics.lines,
     failed,
     exited: child.done.catch(() => ({ exitCode: null, signal: null })),
     dispose: () => (disposal ??= disposeAcpChild(child, options.disposeEofGraceMs)),

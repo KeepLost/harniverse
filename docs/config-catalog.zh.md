@@ -95,14 +95,28 @@ Source: [`packages/examples/acp-demo/src/index.ts:39`](../packages/examples/acp-
 Requires: `agents` · `subprocess`
 
 ```ts config-catalog
-/** Config: how to start the external agent and how to answer its permission requests. */
+/** Config: how to start and sign in to the external agent, and how to answer its requests. */
 export interface Config {
-  /** Executable that serves the external ACP agent over stdio. */
-  command: string
-  /** Arguments passed to {@link command}. */
-  args: string[]
+  /**
+   * A known external agent: one of `claude-acp`, `codex-acp`, `gemini`, or
+   * `antigravity-acp`. It fills in `command` and `args` the row leaves unset.
+   */
+  agent?: string
+  /** Executable that serves the external ACP agent over stdio. Required unless `agent` names a known one. */
+  command?: string
+  /**
+   * Arguments passed to {@link command}; a known agent's own when `agent`
+   * names one and this is left unset or `null`.
+   */
+  args?: string[] | null
   /** Environment variables added on top of the subprocess seam's scrubbed parent environment. */
   env: Record<string, string>
+  /**
+   * Environment variable → credential reference. Each reference is resolved
+   * through the credentials service at every start and handed to the agent as
+   * that variable, so no key is written into this file.
+   */
+  credentialEnv: Record<string, string>
   /**
    * Working directory of the external process and of its session. Must be
    * non-empty; a relative path resolves against the harness launch directory
@@ -112,6 +126,18 @@ export interface Config {
   cwd?: string
   /** ACP version requested at the handshake: `1`, the stable protocol, or `2`, the Preview protocol with a v1 fallback. */
   protocol?: AcpProtocol
+  /**
+   * Id of the sign-in method this row completes when the agent demands
+   * sign-in. Absent, the first agent-driven method the agent advertises is
+   * completed, and the first terminal one when it advertises none.
+   */
+  authMethod?: string
+  /**
+   * Whether a reopened harness session reattaches to the external session
+   * its own log records. `false` opens a fresh external session at every
+   * harness start; the harness transcript stays either way.
+   */
+  resume?: boolean
   /**
    * How to answer the external agent's permission requests: `ask` (default)
    * routes each one through the approval seam and fails closed without an
@@ -127,7 +153,7 @@ export type AcpPermissionMode = 'ask' | 'allow' | 'reject'
 
 Depends on: [`AcpProtocol`](../packages/acp/acp-client/src/index.ts)
 
-Source: [`packages/acp/agent-acp/src/index.ts:21`](../packages/acp/agent-acp/src/index.ts)
+Source: [`packages/acp/agent-acp/src/index.ts:47`](../packages/acp/agent-acp/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 

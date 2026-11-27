@@ -7,34 +7,48 @@
  */
 
 import type { AgentHost, StepDriver, StepEndReason, StepPosition } from '@deepseek-ai/dsh-agent'
-import { allowAnswer, connectAcpAgent, isAcpError } from '@deepseek-ai/dsh-acp-client'
+import { allowAnswer, connectAcpAgent, isAcpError, isAcpNotFound } from '@deepseek-ai/dsh-acp-client'
 import type {
   AcpAgentDefinition,
+  AcpCommand,
+  AcpConfigOption,
+  AcpConfigValue,
   AcpConnection,
   AcpContentBlock,
   AcpPermissionAnswer,
   AcpPermissionAnswerer,
   AcpPermissionRequest,
   AcpPromptBlock,
+  AcpProtocol,
+  AcpQuestionAnswer,
+  AcpQuestionAnswerer,
+  AcpQuestionRequest,
+  AcpQuestionValue,
   AcpSession,
+  AcpSessionModes,
+  AcpSignInHooks,
   AcpToolCallPatch,
   AcpTurnEnd,
   AcpUpdate,
 } from '@deepseek-ai/dsh-acp-client'
 import {
   BlockAssembler,
+  boundContextSummary,
   CallId,
   createAssistantMessage,
   createToolResultMessage,
+  createUserMessage,
   errorChain,
   LlmError,
 } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SubprocessSpawnSpec, SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
-// Type-only: resolves the `approval` service this driver reads through `ctx.get`.
+// Type-only: resolves the `sessionTitle` service this driver reads through `ctx.get`.
+import type {} from '@deepseek-ai/dsh-session-title'
+// Type-only: resolves the `approval` service the permission answerer reads through `ctx.get`.
 import type {} from '@deepseek-ai/dsh-user-approval'
-// Type-only: resolves the `approval` service this driver reads through `ctx.get`.
-import type {} from '@deepseek-ai/dsh-user-approval'
+import { planTodos } from './plan.ts'
+import { recordedBinding, type AcpSessionEventData } from './session.ts'
 
 /** How the driver answers the external agent's permission requests. */
 export type AcpPermissionMode = 'ask' | 'allow' | 'reject'
@@ -45,7 +59,40 @@ export interface AcpDriverOptions {
   /** Working directory of the external process; the session's own when omitted. */
   readonly cwd: string | undefined
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
+  readonly permission: AcpPermissionAnswerer
+  /** Asks the person what the agent wants to know; omitted declines every question. */
+  readonly questions?: AcpQuestionAnswerer
+  /** Asks the person to complete a terminal sign-in; omitted refuses one. */
+  readonly terminalSignIn?: AcpSignInHooks['terminal']
+  /** Resolves the credential-backed environment of one start; a resolved value is never kept. */
+  readonly resolveEnv?: () => Promise<Record<string, string>>
+  /** Whether a reopened session reattaches to the external session its own log records. */
+  readonly resume: boolean
 }
+
+/** What the `acp` commands read and switch on a driven session. */
+export interface AcpDriverView {
+  /** The agent's reported name once the handshake told it, and its command before that. */
+  readonly agent: string
+  readonly protocol: AcpProtocol | undefined
+  /** The external session in effect and how it was reached; absent until a turn opened one. */
+  readonly session: { readonly id: string; readonly reached: 'new' | 'resumed' } | undefined
+  readonly modes: AcpSessionModes | undefined
+  readonly configOptions: readonly AcpConfigOption[] | undefined
+  readonly commands: readonly AcpCommand[] | undefined
+  /** Switch the session's mode.
+   * @param modeId - one of the offered modes.
+   */
+  setMode(modeId: string): Promise<void>
+  /** Set one configuration option.
+   * @param configId - one of the offered options.
+   * @param value - a value that option accepts.
+   */
+  setConfigOption(configId: string, value: AcpConfigValue): Promise<void>
+}
+
+/** The name the question the agent asked is recorded under, beside its tool calls. */
+const QUESTION_TOOL = 'acp_question'
 
 /** The external turn the steps of one harness turn read from. */
 interface Exchange {
@@ -70,7 +117,7 @@ interface SegmentCall {
 type BlockType = 'text' | 'reasoning'
 
 const FAILURE_CODE = 'ACP_TURN'
-const DECLINE: AcpPermissionAnswer = { outcome: { outcome: 'cancelled' } }
+const DECLINE: AcpQuestionAnswer = { action: 'decline' }
 
 function text(content: AcpContentBlock): string | undefined {
   return content.type === 'text' && typeof content.text === 'string' ? content.text : undefined
@@ -126,10 +173,10 @@ function toFailure(error: unknown): Error {
  */
 export function permissionAnswerer(mode: AcpPermissionMode, host: AgentHost): AcpPermissionAnswerer {
   return async (request: AcpPermissionRequest): Promise<AcpPermissionAnswer> => {
-    if (mode === 'reject') return DECLINE
+    if (mode === 'reject') return { outcome: { outcome: 'cancelled' } }
     if (mode === 'allow') return allowAnswer(request)
     const approval = host.ownerCtx.get('approval')
-    if (approval === undefined) return DECLINE
+    if (approval === undefined) return { outcome: { outcome: 'cancelled' } }
     const callId = request.toolCallId === undefined ? undefined : CallId(request.toolCallId)
     const outcome = await approval.request({
       agent: host.agent,
@@ -138,33 +185,68 @@ export function permissionAnswerer(mode: AcpPermissionMode, host: AgentHost): Ac
       ...request.reason === undefined ? {} : { reason: request.reason },
       signal: request.signal,
     })
-    return outcome === 'allowed-once' ? allowAnswer(request) : DECLINE
+    return outcome === 'allowed-once' ? allowAnswer(request) : { outcome: { outcome: 'cancelled' } }
   }
 }
 
 /**
  * Drives an agent through an external ACP agent. The connection opens at the
  * first step and lives until the agent's scope unwinds, which reaps the
- * external process.
+ * external process. The external session is recorded in the session log, so
+ * a reopened harness session reattaches to it while the agent still holds it.
  */
 export class AcpStepDriver implements StepDriver<void> {
   private connection: AcpConnection | undefined
   private connecting: Promise<AcpConnection> | undefined
   private session: AcpSession | undefined
   private exchange: Exchange | undefined
+  /** The segment the running step writes, where a question the agent asks is recorded. */
+  private segment: Segment | undefined
+  /** The external session in effect and how it was reached. */
+  private binding: AcpDriverView['session']
+  /** The title this driver applied last, which a later report by the agent may replace. */
+  private appliedTitle: string | undefined
+  private readonly signIn: AcpSignInHooks
 
   constructor(
     private readonly host: AgentHost,
     private readonly options: AcpDriverOptions,
-    private readonly permission: AcpPermissionAnswerer,
   ) {
     // The external process lives exactly as long as this agent.
     host.ctx.effect(() => () => this.close(), 'agent-acp.connection()')
+    const terminal = options.terminalSignIn
+    this.signIn = {
+      url: (url) => { this.link(url) },
+      ...terminal === undefined ? {} : { terminal: (signIn, signal) => terminal(signIn, signal) },
+    }
   }
 
   /** The external agent needs no per-step preparation. */
   prepare(): Promise<void> {
     return Promise.resolve()
+  }
+
+  /** What the `acp` commands read and switch; every field reads the session as it stands now. */
+  view(): AcpDriverView {
+    const connection = this.connection
+    const current = (): AcpSession | undefined => this.session
+    const binding = (): AcpDriverView['session'] => this.binding
+    return {
+      agent: this.agentLabel(),
+      get protocol(): AcpProtocol | undefined { return connection?.protocol },
+      get session(): AcpDriverView['session'] { return binding() },
+      get modes(): AcpSessionModes | undefined { return current()?.modes },
+      get configOptions(): readonly AcpConfigOption[] | undefined { return current()?.configOptions },
+      get commands(): readonly AcpCommand[] | undefined { return current()?.commands },
+      setMode: async (modeId) => { await this.requireSession().setMode(modeId) },
+      setConfigOption: async (configId, value) => { await this.requireSession().setConfigOption(configId, value) },
+    }
+  }
+
+  /** The session the agent holds; a command before the first turn has none to switch. */
+  private requireSession(): AcpSession {
+    if (this.session === undefined) throw new LlmError('the external agent has no session yet: send a message first', 'ACP_NO_SESSION')
+    return this.session
   }
 
   /**
@@ -173,7 +255,10 @@ export class AcpStepDriver implements StepDriver<void> {
    *   `null` when another segment follows.
    */
   async run(position: StepPosition, _prep: void, messages: readonly UserMessage[]): Promise<StepEndReason | null> {
-    const segment = new Segment(this.host, position, () => this.agentLabel())
+    // Context no person wrote, while no external turn is open, owes the agent nothing.
+    if (this.exchange === undefined && !messages.some(message => message.source.kind === 'user')) return { kind: 'completed' }
+    const segment = new Segment(this.host, this, position)
+    this.segment = segment
     try {
       const exchange = (this.exchange ??= await this.open(position, messages))
       const result = await segment.pump(exchange)
@@ -186,6 +271,8 @@ export class AcpStepDriver implements StepDriver<void> {
       else this.exchange = undefined
       segment.interrupt()
       throw toFailure(error)
+    } finally {
+      this.segment = undefined
     }
   }
 
@@ -209,18 +296,54 @@ export class AcpStepDriver implements StepDriver<void> {
 
   private async open(position: StepPosition, messages: readonly UserMessage[]): Promise<Exchange> {
     const connection = await this.connect()
-    const session = (this.session ??= await connection.newSession())
+    const session = (this.session ??= await this.attach(connection, position.signal))
     const turn = session.prompt(promptBlocks(messages), { signal: position.signal })
     return { iterator: turn.updates[Symbol.asyncIterator](), end: turn.end, held: undefined }
   }
 
+  /**
+   * Open the external session: reattach to the one this session's own log
+   * records while the agent still holds it, and record a fresh one otherwise.
+   */
+  private async attach(connection: AcpConnection, signal: AbortSignal): Promise<AcpSession> {
+    const cwd = this.workingDirectory()
+    const recorded = connection.agent.capabilities.resume && this.options.resume ? recordedBinding(this.host.session) : undefined
+    if (recorded !== undefined && this.matches(recorded, cwd)) {
+      try {
+        const session = await connection.resumeSession(recorded.sessionId, { signal })
+        this.binding = { id: recorded.sessionId, reached: 'resumed' }
+        return session
+      } catch (error: unknown) {
+        // An agent that no longer holds the session gets a fresh one; any other refusal is the turn's failure.
+        if (!isAcpNotFound(error)) throw error
+        this.notify(`The external agent no longer holds session ${recorded.sessionId}; this turn opens a fresh one.`, 'External session not resumed')
+      }
+    }
+    const session = await connection.newSession({ signal })
+    const { command, args = [] } = this.options.definition
+    const agentName = connection.agent.name
+    this.host.session.append('acp/session', {
+      sessionId: session.sessionId,
+      reached: 'new',
+      command,
+      args,
+      protocol: connection.protocol,
+      ...agentName === undefined ? {} : { agentName },
+      cwd,
+    })
+    this.binding = { id: session.sessionId, reached: 'new' }
+    return session
+  }
+
+  /** Whether a recorded binding belongs to the agent this row launches in the directory this session uses. */
+  private matches(recorded: AcpSessionEventData, cwd: string): boolean {
+    const { command, args = [] } = this.options.definition
+    return recorded.command === command && recorded.cwd === cwd
+      && recorded.args.length === args.length && recorded.args.every((arg, index) => arg === args[index])
+  }
+
   private connect(): Promise<AcpConnection> {
-    return (this.connecting ??= connectAcpAgent({
-      definition: this.options.definition,
-      cwd: this.workingDirectory(),
-      spawn: this.options.spawn,
-      permission: this.permission,
-    }).then(
+    return (this.connecting ??= this.start().then(
       (connection: AcpConnection) => {
         this.connection = connection
         // A process that exits on its own takes its connection with it; a newer one stays.
@@ -235,6 +358,63 @@ export class AcpStepDriver implements StepDriver<void> {
         throw error
       },
     ))
+  }
+
+  private async start(): Promise<AcpConnection> {
+    const credentials = await this.options.resolveEnv?.()
+    return connectAcpAgent({
+      definition: {
+        ...this.options.definition,
+        ...credentials === undefined ? {} : { env: { ...this.options.definition.env, ...credentials } },
+      },
+      cwd: this.workingDirectory(),
+      spawn: this.options.spawn,
+      permission: this.options.permission,
+      questions: this.answerQuestion,
+      signIn: this.signIn,
+    })
+  }
+
+  /** Answer the agent's question through the consumer, and record what was asked and answered. */
+  private readonly answerQuestion: AcpQuestionAnswerer = async (request): Promise<AcpQuestionAnswer> => {
+    const answer = await (this.options.questions?.(request) ?? DECLINE)
+    if (answer.action === 'accept') this.segment?.asked(request, answer.content)
+    return answer
+  }
+
+  /** Put the address where the person signs in in front of them. */
+  private link(url: string): void {
+    this.notify(`Sign in to ${this.agentLabel()}: open ${url} in a browser.`, 'Sign-in link')
+  }
+
+  /**
+   * Put one notice in front of the person. It is claimed by the next step,
+   * where it starts no external turn.
+   */
+  private notify(body: string, summary: string): void {
+    this.host.agent.inject(createUserMessage({
+      content: [{ type: 'text', text: body }],
+      source: { kind: 'plugin', plugin: 'agent-acp', form: 'notice', summary: boundContextSummary(summary) },
+    }))
+  }
+
+  /** Apply a title the agent gave the session; one the person chose stays. */
+  title(title: string | undefined): void {
+    if (title === undefined || title === '') return
+    const titles = this.host.ownerCtx.get('sessionTitle')
+    if (titles === undefined) return
+    const current = titles.get(this.host.session)
+    // Every applied title is stored as an explicit rename, so a stored title
+    // is the person's own exactly when this driver did not apply it last.
+    if (current !== undefined && current.source.kind === 'user' && current.title !== this.appliedTitle) return
+    if (current?.title === title) return
+    titles.rename(this.host.session, title)
+    this.appliedTitle = title
+  }
+
+  /** Show one notice the agent published. */
+  notice(update: Extract<AcpUpdate, { kind: 'notice' }>): void {
+    this.notify(`${update.title}${update.message === undefined ? '' : `: ${update.message}`}`, update.title)
   }
 
   private workingDirectory(): string {
@@ -257,8 +437,8 @@ class Segment {
 
   constructor(
     private readonly host: AgentHost,
+    private readonly driver: AcpStepDriver,
     private readonly position: StepPosition,
-    private readonly source: () => string,
   ) {}
 
   /**
@@ -315,6 +495,19 @@ class Segment {
     this.flush(true)
   }
 
+  /** Record a question the agent asked and what was answered, as one completed call. */
+  asked(request: AcpQuestionRequest, content: Readonly<Record<string, AcpQuestionValue>>): void {
+    const labels = Object.fromEntries(request.fields.map(field => [field.name, field.label]))
+    this.toolCall({
+      toolCallId: `question-${this.calls.length + 1}`,
+      name: QUESTION_TOOL,
+      title: request.message,
+      status: 'completed',
+      rawInput: labels,
+      content: [{ type: 'content', content: { type: 'text', text: JSON.stringify(content) } }],
+    })
+  }
+
   /** Apply one update; `closed` means the following updates belong to a new step. */
   private absorb(update: AcpUpdate, exchange: Exchange): 'open' | 'closed' {
     switch (update.kind) {
@@ -339,6 +532,19 @@ class Segment {
         if (completed && exchange.held !== undefined && this.settled()) return 'closed'
         return 'open'
       }
+      case 'plan':
+        // A plan report replaces the standing todo list whole.
+        this.host.session.append('todo/write', { todos: planTodos(update.entries) })
+        return 'open'
+      case 'plan-removed':
+        this.host.session.append('todo/write', { todos: [] })
+        return 'open'
+      case 'session-info':
+        this.driver.title(update.title)
+        return 'open'
+      case 'notice':
+        this.driver.notice(update)
+        return 'open'
       default:
         return 'open'
     }
@@ -400,7 +606,7 @@ class Segment {
       this.host.session.append('assistant/message', {
         turn,
         step,
-        message: createAssistantMessage({ content, source: { provider: 'acp', model: this.source() } }),
+        message: createAssistantMessage({ content, source: { provider: 'acp', model: this.driverLabel() } }),
         ...interrupted ? { interrupted: true } : {},
       }, { surfaceOp: 'append', sourceEventSeqs: [...this.chunkSeqs] })
     }
@@ -423,5 +629,10 @@ class Segment {
         ...isError ? { error: { name: 'AcpToolError', code: completion === undefined ? 'incomplete' : 'failed' } } : {},
       }, { surfaceOp: 'append' })
     }
+  }
+
+  /** The label the agent's messages are attributed to. */
+  private driverLabel(): string {
+    return this.driver.view().agent
   }
 }

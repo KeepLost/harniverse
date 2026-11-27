@@ -57,7 +57,7 @@ describe('a v1 connection', () => {
     expect(seam.processes[0]?.spec).toEqual({
       argv: ['fake-agent', '--acp'],
       cwd: '/work',
-      stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
+      stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' },
       graceMs: 3000,
       env: { FACT: '1' },
     })
@@ -66,7 +66,13 @@ describe('a v1 connection', () => {
       params: {
         protocolVersion: 1,
         // The agent's SDK materializes every omitted client capability as unsupported.
-        clientCapabilities: { auth: { terminal: false }, fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientCapabilities: {
+          session: { configOptions: { boolean: {} }, notices: {} },
+          plan: {},
+          auth: { terminal: false },
+          fs: { readTextFile: false, writeTextFile: false },
+          terminal: false,
+        },
         clientInfo: { name: 'client-x', version: '9.9.9' },
       },
     })
@@ -80,6 +86,7 @@ describe('a v1 connection', () => {
         close: false,
         prompt: { image: false, audio: false, embeddedContext: false },
       },
+      authMethods: [],
     })
     await connection.dispose()
   })
@@ -435,6 +442,7 @@ describe('capability gating', () => {
       name: 'capable',
       version: '2',
       capabilities: { resume: true, list: true, close: true, prompt: { image: true, audio: true, embeddedContext: true } },
+      authMethods: [],
     })
     const resumed = await connection.resumeSession('s1')
     expect(resumed.sessionId).toBe('s1')

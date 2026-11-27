@@ -1,25 +1,38 @@
 # The ACP mode preset template.
 #
 # A session on this preset is driven by an EXTERNAL agent that speaks the Agent
-# Client Protocol (ACP) over stdio: Claude Code, Codex, Gemini CLI, Antigravity,
-# or any other conforming agent. Harniverse is only the frontend. The
-# composition is therefore empty of everything a harness agent would carry —
-# no persona, no tools, no skills, no MCP servers, no model route — because the
-# external agent brings its own.
+# Client Protocol (ACP) over stdio. Harniverse is only the frontend: the
+# composition is empty of everything a harness agent would carry — no persona,
+# no tools, no skills, no MCP servers, no model route — because the external
+# agent brings its own.
 #
 # This directory is a TEMPLATE, not part of the shipped roster: an external
 # agent is something you install yourself. Copy it to
-# `${DSH_HOME:-$HOME/.dsh}/.agent-presets/acp/` and set the command for the
-# agent you have:
+# `${DSH_HOME:-$HOME/.dsh}/.agent-presets/acp/` and name the agent you have:
 #
-#   Claude Code    command: claude   args: [acp]
-#   Codex          command: codex-acp   args: []
-#   Gemini CLI     command: gemini   args: [--experimental-acp]
-#   Antigravity    command: agy   args: [acp]
+#   agent: claude-acp        Claude Code, through @agentclientprotocol/claude-agent-acp
+#   agent: codex-acp         Codex, through @agentclientprotocol/codex-acp
+#   agent: gemini            Gemini CLI (--acp)
+#   agent: antigravity-acp   Google Antigravity (agy acp)
 #
-# The agent's own sign-in is its own business: complete it once with the
-# agent's program, outside the harness. A request the agent asks permission for
-# is answered through Harniverse's approval prompt (`permission: ask`).
+# A known agent fills in its command; any other conforming agent is named by
+# `command` and `args` instead of `agent`. The known ones start through `npx`,
+# which downloads the package once.
+#
+# Sign-in happens when the agent first demands it, inside the turn that
+# needed it. An agent that signs in through the browser shows its address in
+# the transcript; one that only offers a terminal sign-in names the program to
+# run and waits. An API key goes through the credentials service rather than
+# into this file:
+#
+#   credentialEnv:
+#     ANTHROPIC_API_KEY: ANTHROPIC_API_KEY
+#
+# The external agent's session is recorded in the harness session, and a
+# reopened harness session reattaches to it while the agent still holds it
+# (`resume: false` opens a fresh one at every start). A permission request
+# reaches the approval prompt (`permission: ask`). `/acp` shows the agent's
+# session, modes, and options; `/acp-mode` and `/acp-option` switch them.
 #
 # A service row in a preset MUST sit inside a group carrying an `isolate`
 # realm unless it only consumes host registries. This row publishes nothing:
@@ -28,8 +41,6 @@
 - id: agent-acp
   name: '@deepseek-ai/dsh-agent-acp'
   config:
-    command: claude
-    args:
-      - acp
+    agent: claude-acp
     env: {}
     permission: ask

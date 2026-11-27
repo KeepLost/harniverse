@@ -29,6 +29,7 @@ interface V2Script {
   list?: () => unknown
   close?: () => unknown
   prompt?: Prompt
+  setConfigOption?: (params: unknown) => unknown
 }
 
 function attachV2(process: FakeProcess, script: V2Script, received: Received[]): AgentApp {
@@ -52,6 +53,10 @@ function attachV2(process: FakeProcess, script: V2Script, received: Received[]):
   app.onRequest(methods.agent.session.resume, ({ params }) => {
     received.push({ method: 'session/resume', params })
     return answer(script.resume?.() ?? {}) as never
+  })
+  app.onRequest('session/set_config_option' as never, ({ params }) => {
+    received.push({ method: 'session/set_config_option', params })
+    return answer(script.setConfigOption?.(params) ?? { configOptions: [] })
   })
   app.onRequest(methods.agent.session.list, () => {
     received.push({ method: 'session/list', params: {} })
@@ -106,6 +111,7 @@ describe('a v2 connection', () => {
         close: true,
         prompt: { image: false, audio: false, embeddedContext: false },
       },
+      authMethods: [],
     })
     expect(received[0]?.params).toEqual({ protocolVersion: 2, capabilities: {}, info: { name: 'harniverse', version: '1.0.0' } })
     expect((await connection.resumeSession('old')).sessionId).toBe('old')
@@ -198,13 +204,47 @@ describe('a v2 connection', () => {
     await connection.dispose()
   })
 
-  it('completes the agent-driven login and reads the v2 authentication shapes', async () => {
+  it('completes the agent-driven login once the agent refuses a request', async () => {
+    let signedIn = false
     const { connect, received } = harness({
       initialize: () => ({ protocolVersion: 2, info: { name: 'v2-agent', version: '2' }, authMethods: [{ id: 'oauth', name: 'OAuth' }] }),
+      login: () => { signedIn = true },
+      newSession: () => {
+        if (!signedIn) throw new RequestError(-32000, 'Authentication required')
+        return { sessionId: 'v2-session' }
+      },
     })
     const connection = await connect()
-    expect(received.map(entry => entry.method)).toEqual(['initialize', 'auth/login'])
     expect(connection.agent.name).toBe('v2-agent')
+    expect(received.map(entry => entry.method)).toEqual(['initialize'])
+    expect((await connection.newSession()).sessionId).toBe('v2-session')
+    expect(received.map(entry => entry.method)).toEqual(['initialize', 'session/new', 'auth/login', 'session/new'])
+    await connection.dispose()
+  })
+
+  it('has no mode switch, and sets an option in the v2 value shape', async () => {
+    const { connect, received } = harness({})
+    const connection = await connect()
+    const session = await connection.newSession()
+    await expect(session.setMode('plan')).rejects.toMatchObject({ kind: 'unsupported', message: 'ACP version 2 has no session modes' })
+    await session.setConfigOption('model', 'opus')
+    expect(received.at(-1)).toEqual({
+      method: 'session/set_config_option',
+      params: { sessionId: 'v2-session', configId: 'model', type: 'id', value: 'opus' },
+    })
+    await session.setConfigOption('flag', true)
+    expect(received.at(-1)?.params).toEqual({ sessionId: 'v2-session', configId: 'flag', type: 'boolean', value: true })
+    await connection.dispose()
+  })
+
+  it('offers a terminal sign-in and a form elicitation only when the consumer can run them', async () => {
+    const { connect, received } = harness({})
+    const connection = await connect({ signIn: { terminal: async () => true }, questions: async () => ({ action: 'decline' }) })
+    expect(received[0]?.params).toEqual({
+      protocolVersion: 2,
+      capabilities: { elicitation: { form: {} }, auth: { terminal: {} } },
+      info: { name: 'harniverse', version: '1.0.0' },
+    })
     await connection.dispose()
   })
 

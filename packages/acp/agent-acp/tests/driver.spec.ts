@@ -62,6 +62,7 @@ async function harness(
     command: process.execPath,
     args: [fakeAgent],
     env: { ACP_FAKE_SCENARIO: scenario, ACP_FAKE_LOG: log, ACP_FAKE_EOF: eof },
+    credentialEnv: {},
     permission: 'reject',
     ...config,
   })
@@ -110,9 +111,10 @@ describe('an ACP-mode agent', () => {
     try {
       const agent = await run(h, 'hi there')
       expect(core(agent).map(event => event.type)).toEqual([
-        'turn/start', 'step/start', 'user/message', 'assistant/chunk', 'assistant/chunk', 'assistant/chunk',
+        'turn/start', 'step/start', 'user/message', 'acp/session', 'assistant/chunk', 'assistant/chunk', 'assistant/chunk',
         'assistant/message', 'step/end', 'turn/end',
       ])
+      expect(core(agent).find(event => event.type === 'acp/session')).toMatchObject({ data: { sessionId: 'external-1', reached: 'new' } })
       expect(textOf(core(agent).find(event => event.type === 'assistant/message'))).toBe('Hello world')
       expect(core(agent).at(-1)).toMatchObject({ data: { reason: { kind: 'completed' } } })
       const prompts = h.log().filter(entry => entry.method === 'session/prompt')
@@ -372,7 +374,7 @@ describe('the plugin', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalSubprocessRuntime)
-    await ctx.plugin(acp, { command: 'agent', args: [], env: {}, permission: 'ask', ...config })
+    await ctx.plugin(acp, { command: 'agent', args: [], env: {}, credentialEnv: {}, permission: 'ask', ...config })
     return ctx
   }
 
@@ -395,7 +397,7 @@ describe('the plugin', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalSubprocessRuntime)
-    const fiber = await ctx.plugin(acp, { command: 'agent', args: [], env: {}, permission: 'ask' })
+    const fiber = await ctx.plugin(acp, { command: 'agent', args: [], env: {}, credentialEnv: {}, permission: 'ask' })
     expect(ctx.agents.driverFor(undefined)).toBeInstanceOf(Function)
     await fiber.dispose()
     expect(ctx.agents.driverFor(undefined)).toBeUndefined()
@@ -459,11 +461,12 @@ describe('what the log carries', () => {
     const h = await harness([{ updates: [chunk('ok')] }])
     try {
       const agent = h.ctx.agentLoop.create(SessionId('acp'), {}, { cwd: h.dir })
-      const idle = waitForIdle(h.ctx, agent)
-      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'from a plugin' }], source: { kind: 'plugin', plugin: 'test' } }))
-      await idle
+      // Injected context is claimed into the same step as the person's message.
+      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'from a plugin' }], source: { kind: 'plugin', plugin: 'test' } }))
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'from a person' }], source: { kind: 'user' } }))
+      await waitForIdle(h.ctx, agent)
       expect(h.log().find(entry => entry.method === 'session/prompt')?.params).toMatchObject({
-        prompt: [{ type: 'text', text: '(no text content)' }],
+        prompt: [{ type: 'text', text: 'from a person' }],
       })
     } finally {
       await h.ctx.fiber.dispose()

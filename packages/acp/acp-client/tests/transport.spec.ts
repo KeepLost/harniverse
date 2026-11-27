@@ -154,12 +154,121 @@ describe('spawnAcpChild', () => {
     expect(specs).toEqual([{
       argv: ['agent'],
       cwd: '/work',
-      stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
+      stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' },
       graceMs: 3_000,
       env: { TOKEN_EXPLICIT: 'kept' },
     }])
     expect(processes[0]?.pid).toBeGreaterThan(0)
     expect(child.io.output).toBeInstanceOf(WritableStream)
     expect(child.io.input).toBeInstanceOf(ReadableStream)
+  })
+
+  it('keeps the stderr as lines for a reader that arrives late, and copies it', async () => {
+    const copied: string[] = []
+    const seam = fakeSeam((process) => { process.captureStderr() })
+    const child = spawnAcpChild({
+      definition: { command: 'agent' },
+      cwd: '/work',
+      spawn: seam.spawn,
+      disposeEofGraceMs: 1,
+      disposeGraceMs: 1,
+      copyDiagnostics: (chunk) => { copied.push(chunk.toString()) },
+    })
+    seam.processes[0]?.stderr?.write('first line\nsecond https://example.test/x\n')
+    seam.processes[0]?.exit(0, null)
+    const lines: string[] = []
+    for await (const line of child.diagnostics) lines.push(line)
+    expect(lines).toEqual(['first line', 'second https://example.test/x'])
+    expect(copied.join('')).toBe('first line\nsecond https://example.test/x\n')
+    // A handle that exposed no stderr reports no lines.
+    const bare = spawnAcpChild({
+      definition: { command: 'agent' },
+      cwd: '/work',
+      spawn: fakeSeam(() => {}).spawn,
+      disposeEofGraceMs: 1,
+      disposeGraceMs: 1,
+    })
+    for await (const _line of bare.diagnostics) { /* none */ }
+  })
+
+  it('reads what a real agent prints on stderr', async () => {
+    const child = spawnAcpChild({
+      definition: { command: process.execPath, args: ['--eval', 'process.stderr.write("sign in at https://example.test/login\\n")'] },
+      cwd: process.cwd(),
+      spawn: spawnSubprocess,
+      disposeEofGraceMs: 100,
+      disposeGraceMs: 200,
+      copyDiagnostics: () => {},
+    })
+    const lines: string[] = []
+    for await (const line of child.diagnostics) lines.push(line)
+    expect(lines).toEqual(['sign in at https://example.test/login'])
+    await child.dispose()
+  })
+
+  it('keeps a long run without a line end, a last line without one, and a bounded number of lines', async () => {
+    const seam = fakeSeam((process) => { process.captureStderr() })
+    const child = spawnAcpChild({
+      definition: { command: 'agent' },
+      cwd: '/work',
+      spawn: seam.spawn,
+      disposeEofGraceMs: 1,
+      disposeGraceMs: 1,
+      copyDiagnostics: () => {},
+    })
+    const stderr = seam.processes[0]?.stderr
+    for (let index = 0; index < 205; index++) stderr?.write(`line ${index}\n`)
+    stderr?.write('x'.repeat(9000))
+    stderr?.write('tail without end')
+    seam.processes[0]?.exit(0, null)
+    // A reader that starts once everything was printed sees what was kept for it.
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const lines: string[] = []
+    for await (const line of child.diagnostics) lines.push(line)
+    // 207 lines were printed; a late reader gets the last 200.
+    expect(lines).toHaveLength(200)
+    expect(lines.slice(0, 2)).toEqual(['line 7', 'line 8'])
+    expect(lines[197]).toBe('line 204')
+    expect(lines[198]).toBe('x'.repeat(9000))
+    expect(lines[199]).toBe('tail without end')
+    // The diagnostics have one reader.
+    expect(() => child.diagnostics[Symbol.asyncIterator]()).toThrow('one reader')
+  })
+
+  it('keeps observing streams that fail more than once, as one write after the agent died does', async () => {
+    const seam = fakeSeam((process) => { process.captureStderr() })
+    const child = spawnAcpChild({
+      definition: { command: 'agent' },
+      cwd: '/work',
+      spawn: seam.spawn,
+      disposeEofGraceMs: 1,
+      disposeGraceMs: 1,
+      copyDiagnostics: () => {},
+    })
+    // Each error must have a listener; an unobserved one would end the harness process.
+    seam.processes[0]?.stdin.emit('error', new Error('write EPIPE'))
+    seam.processes[0]?.stdin.emit('error', new Error('write EPIPE'))
+    seam.processes[0]?.stderr?.emit('error', new Error('stderr broke'))
+    seam.processes[0]?.stderr?.emit('error', new Error('stderr broke again'))
+    const lines: string[] = []
+    for await (const line of child.diagnostics) lines.push(line)
+    expect(lines).toEqual([])
+    await child.dispose()
+  })
+
+  it('ends the diagnostics when the stderr fails', async () => {
+    const seam = fakeSeam((process) => { process.captureStderr() })
+    const child = spawnAcpChild({
+      definition: { command: 'agent' },
+      cwd: '/work',
+      spawn: seam.spawn,
+      disposeEofGraceMs: 1,
+      disposeGraceMs: 1,
+      copyDiagnostics: () => {},
+    })
+    seam.processes[0]?.stderr?.destroy(new Error('stderr broke'))
+    const lines: string[] = []
+    for await (const line of child.diagnostics) lines.push(line)
+    expect(lines).toEqual([])
   })
 })

@@ -24,16 +24,40 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../interaction/commands"
+    },
+    {
       "path": "../../interaction/user-approval"
+    },
+    {
+      "path": "../../interaction/user-questions"
     },
     {
       "path": "../../llm/llm"
     },
     {
+      "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../session/session-title"
+    },
+    {
       "path": "../../subprocess/subprocess"
     },
     {
-      "path": "../../runtime-diagnostics/invariants"
+      "path": "../../todo/tool-todo"
+    },
+    {
+      "path": "../../util/launch-environment"
+    },
+    {
+      "path": "../../session/session-persistence-jsonl"
     }
   ]
 }

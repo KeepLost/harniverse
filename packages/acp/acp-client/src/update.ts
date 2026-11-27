@@ -6,7 +6,9 @@
  * @module @deepseek-ai/dsh-acp-client/update
  */
 
+import { readConfigOptions } from './options.ts'
 import type {
+  AcpCommand,
   AcpContentBlock,
   AcpPlanEntry,
   AcpStopReason,
@@ -124,6 +126,18 @@ function planEntries(raw: RawRecord): AcpPlanEntry[] | undefined {
   return entries
 }
 
+/** Read the offered commands; `undefined` when any entry is malformed. */
+function readCommands(value: unknown): AcpCommand[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const commands: AcpCommand[] = []
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.name !== 'string' || typeof item.description !== 'string') return undefined
+    const input = isRecord(item.input) ? text(item.input.hint) : undefined
+    commands.push({ name: item.name, description: item.description, ...input === undefined ? {} : { inputHint: input } })
+  }
+  return commands
+}
+
 function wholeMessage(raw: RawRecord): AcpContentBlock[] | undefined {
   return contentBlocks(raw.content)
 }
@@ -159,6 +173,25 @@ export function normalizeUpdate(raw: RawRecord): AcpUpdate {
     case 'plan': {
       const entries = planEntries(raw)
       return entries === undefined ? other : { kind: 'plan', entries }
+    }
+    case 'plan_update': {
+      // A named plan replaces its earlier entries whole; a plan the agent keeps as a document has no entries.
+      const plan = raw.plan
+      if (!isRecord(plan) || plan.type !== 'items' || typeof plan.planId !== 'string') return other
+      const entries = planEntries(plan)
+      return entries === undefined ? other : { kind: 'plan', entries, planId: plan.planId }
+    }
+    case 'plan_removed':
+      return typeof raw.planId === 'string' ? { kind: 'plan-removed', planId: raw.planId } : other
+    case 'current_mode_update':
+      return typeof raw.currentModeId === 'string' ? { kind: 'mode', currentModeId: raw.currentModeId } : other
+    case 'config_option_update': {
+      const configOptions = readConfigOptions(raw.configOptions)
+      return configOptions === undefined ? other : { kind: 'config', configOptions }
+    }
+    case 'available_commands_update': {
+      const commands = readCommands(raw.availableCommands)
+      return commands === undefined ? other : { kind: 'commands', commands }
     }
     case 'usage_update': {
       const used = typeof raw.used === 'number' ? raw.used : undefined

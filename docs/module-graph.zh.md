@@ -1190,13 +1190,6 @@ flowchart TD
   pkg_acp --> pkg_invariants
   pkg_acp --> pkg_session
   pkg_acp --> pkg_user_approval
-  pkg_agent_acp --> pkg_acp_client
-  pkg_agent_acp --> pkg_agent
-  pkg_agent_acp --> pkg_invariants
-  pkg_agent_acp --> pkg_llm
-  pkg_agent_acp --> pkg_session
-  pkg_agent_acp --> pkg_subprocess
-  pkg_agent_acp --> pkg_user_approval
   pkg_compaction_tool_result_pruner --> pkg_compaction
   pkg_compaction_tool_result_pruner --> pkg_invariants
   pkg_compaction_tool_result_pruner --> pkg_llm
@@ -1583,6 +1576,20 @@ flowchart TD
   pkg_session_delivery_local --> pkg_session_delivery
   pkg_session_delivery_local --> pkg_session_persistence
   pkg_session_delivery_local --> pkg_subagent
+  pkg_agent_acp --> pkg_acp_client
+  pkg_agent_acp --> pkg_agent
+  pkg_agent_acp --> pkg_commands
+  pkg_agent_acp --> pkg_credentials
+  pkg_agent_acp --> pkg_invariants
+  pkg_agent_acp --> pkg_launch_environment
+  pkg_agent_acp --> pkg_llm
+  pkg_agent_acp --> pkg_session
+  pkg_agent_acp --> pkg_session_projection
+  pkg_agent_acp --> pkg_session_title
+  pkg_agent_acp --> pkg_subprocess
+  pkg_agent_acp --> pkg_tool_todo
+  pkg_agent_acp --> pkg_user_approval
+  pkg_agent_acp --> pkg_user_questions
   pkg_web_app --> pkg_invariants
   pkg_web_app --> pkg_shell_env
   pkg_web_app --> pkg_system_prompt
@@ -2546,7 +2553,6 @@ flowchart TD
 | [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | `session-query` | [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-query`](../packages/session-query/session-query), [`session-title`](../packages/session/session-title) |
 | [`notification`](../packages/notification/notification) | `notification` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`user-approval`](../packages/interaction/user-approval) |
 | [`acp`](../packages/acp/acp) | `acp` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`user-approval`](../packages/interaction/user-approval) |
-| [`agent-acp`](../packages/acp/agent-acp) | `acp` | [`acp-client`](../packages/acp/acp-client), [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess), [`user-approval`](../packages/interaction/user-approval) |
 | [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner) | `compaction` | [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`session-reference`](../packages/context/session-reference) | `context` | [`agent`](../packages/core/agent), [`compaction`](../packages/compaction/compaction), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`session`](../packages/core/session), [`session-query`](../packages/session-query/session-query), [`typert-protocol`](../packages/typert/protocol) |
 | [`host-official-session-import`](../packages/host/official-session-import) | `host` | [`invariants`](../packages/runtime-diagnostics/invariants), [`session-import`](../packages/session/session-import), [`session-persistence`](../packages/session/session-persistence), [`typert-protocol`](../packages/typert/protocol), [`workspace`](../packages/workspace/workspace) |
@@ -2606,6 +2612,7 @@ flowchart TD
 | [`tool-subagent-report`](../packages/subagent/tool-subagent-report) | `subagent` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`hooks-claude-code`](../packages/hooks/hooks-claude-code) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`session-delivery-local`](../packages/session-query/session-delivery-local) | `session-query` | [`agent`](../packages/core/agent), [`agent-default-model`](../packages/core/agent-default-model), [`agent-presets`](../packages/preset/agent-presets), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-delivery`](../packages/session-query/session-delivery), [`session-persistence`](../packages/session/session-persistence), [`subagent`](../packages/subagent/subagent) |
+| [`agent-acp`](../packages/acp/agent-acp) | `acp` | [`acp-client`](../packages/acp/acp-client), [`agent`](../packages/core/agent), [`commands`](../packages/interaction/commands), [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`launch-environment`](../packages/util/launch-environment), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`session-title`](../packages/session/session-title), [`subprocess`](../packages/subprocess/subprocess), [`tool-todo`](../packages/todo/tool-todo), [`user-approval`](../packages/interaction/user-approval), [`user-questions`](../packages/interaction/user-questions) |
 | [`web-app`](../packages/bundle/web-app) | `bundle` | [`invariants`](../packages/runtime-diagnostics/invariants), [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt) |
 | [`compaction-lossless`](../packages/compaction/compaction-lossless) | `compaction` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`compaction`](../packages/compaction/compaction), [`compaction-basic`](../packages/compaction/compaction-basic), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`tool-cordis`](../packages/extensions/tool-cordis) | `extensions` | [`agent`](../packages/core/agent), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |

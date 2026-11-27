@@ -94,6 +94,24 @@ Sources: [`packages/core/session/src/types.ts:395`](../packages/core/session/src
 
 ## Events
 
+### `acp/*`
+
+<a id="acpsession--log-only"></a>
+
+#### `acp/session` — log-only
+
+```ts persistence-catalog
+/**
+ * The external agent session a harness session is bound to. The latest
+ * event in the session's own log is the binding a reopened session
+ * reattaches to; a fork inherits its parent's events below its seed
+ * boundary and so opens an external session of its own. Log-only.
+ */
+'acp/session': AcpSessionEventData
+```
+
+Source: [`packages/acp/agent-acp/src/session.ts:36`](../packages/acp/agent-acp/src/session.ts)
+
 ### `agent/*`
 
 <a id="agentinboxspliced--log-only"></a>
