@@ -4,6 +4,12 @@
   "version": "1.0.0-rc.3",
   "type": "module",
   "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml",
+      "homeOwnership": "shared"
+    }
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -42,6 +48,7 @@
     "@deepseek-ai/dsh-authentication": "workspace:^",
     "@deepseek-ai/dsh-authentication-local": "workspace:^",
     "@deepseek-ai/dsh-cmdline": "workspace:^",
+    "@deepseek-ai/dsh-home-paths": "workspace:^",
     "@deepseek-ai/dsh-peer-client": "workspace:^",
     "@deepseek-ai/dsh-peer-host": "workspace:^",
     "@deepseek-ai/dsh-peer-protocol": "workspace:^",
@@ -60,6 +67,8 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^"
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@types/js-yaml": "^4.0.9",
+    "js-yaml": "^4.3.1"
   }
 }

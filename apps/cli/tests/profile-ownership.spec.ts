@@ -1,17 +1,18 @@
 import { generateKeyPairSync } from 'node:crypto'
 import type { EventEmitter } from 'node:events'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import { Context } from '@deepseek-ai/cordis'
 import { createEnrollmentRequest } from '@deepseek-ai/dsh-authentication-local'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { afterEach, expect, it, vi } from 'vitest'
-import { acquireHomeOwnership, boot } from '@deepseek-ai/dsh-app-boot'
-import { runProfile } from '../src/profile-boot.ts'
+import { acquireHomeOwnership, boot, loadOverlayPatches, loadProfile, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
+import { INSTALL_ANCHOR, runProfile } from '../src/profile-boot.ts'
 
 const disposeProxy = vi.fn(async () => {})
 vi.mock('@deepseek-ai/dsh-app-boot', async (importOriginal) => {
@@ -121,6 +122,54 @@ it('runs the real chat composition beside an exclusive home owner', async () => 
     await owner.release()
   }
 }, 25_000)
+
+it.each(Object.keys(PROFILE_TEMPLATES))('loads the shipped %s profile from this installation', async (profile) => {
+  root = await mkdtemp(join(tmpdir(), 'dsh-shipped-profile-'))
+  const loaded = loadProfile('t', profile, INSTALL_ANCHOR, root, { readOnly: true, userLayer: false })
+  // Management profiles run beside the home owner; the serving profiles take the exclusive lease.
+  expect(loaded.homeOwnership).toBe(['auth', 'chat', 'peer'].includes(profile) ? 'shared' : 'exclusive')
+  expect(existsSync(join(root, 'profiles'))).toBe(false)
+})
+
+it('declares every plugin row of its shared bundles as a dependency of this installation', () => {
+  const app = JSON.parse(readFileSync(INSTALL_ANCHOR, 'utf8')) as { dependencies: Record<string, string> }
+  const installation = createRequire(INSTALL_ANCHOR)
+  for (const bundles of Object.values(PROFILE_TEMPLATES)) {
+    for (const bundle of bundles) {
+      const dir = dirname(installation.resolve(`${bundle}/package.json`))
+      const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+        dsh?: { bundle?: { patch?: string; homeOwnership?: string } }
+      }
+      // Shared compositions resolve their rows from the installation instead of the profile fallback.
+      if (manifest.dsh?.bundle?.homeOwnership !== 'shared') continue
+      const rows = loadOverlayPatches('t', join(dir, manifest.dsh.bundle.patch!)).flatMap(patch => patch.insert ?? [])
+      for (const row of rows) {
+        // Only a bare package name resolves from the installation; relative and URL names stay config-relative.
+        if (!/^(?:@[\w.-]+\/)?[\w.-]+$/.test(row.name)) continue
+        const packageName = row.name.split('/').slice(0, 2).join('/')
+        expect(app.dependencies, `${bundle} mounts ${row.name}`).toHaveProperty(packageName)
+      }
+    }
+  }
+})
+
+it('runs the real peer composition beside an exclusive home owner', async () => {
+  root = await mkdtemp(join(tmpdir(), 'dsh-peer-coexist-'))
+  const home = join(root, 'home')
+  const owner = await acquireHomeOwnership(home)
+  try {
+    const list = await invoke(home, ['peer', 'list'])
+    expect(list.exitCode, list.stderr).toBe(0)
+    expect(list.stdout).toBe('')
+    const outbox = await invoke(home, ['peer', 'outbox'])
+    expect(outbox.exitCode, outbox.stderr).toBe(0)
+    expect(outbox.stdout).toBe('')
+    expect(existsSync(join(home, 'profiles', 'node_modules'))).toBe(false)
+    await expect(acquireHomeOwnership(home)).rejects.toThrow(/already running/)
+  } finally {
+    await owner.release()
+  }
+}, 45_000)
 
 it.each(['web', 'headless'])('refuses a second %s before profile writes', async (profile) => {
   root = await mkdtemp(join(tmpdir(), 'dsh-profile-refused-'))

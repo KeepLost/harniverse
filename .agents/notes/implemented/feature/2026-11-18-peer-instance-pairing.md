@@ -17,7 +17,7 @@ Two Harniverse instances cannot collaborate: the remote-hosts stack deploys a lo
 
 ## Decision
 
-Two Harniverse instances pair home-to-home. The home anchors identity: `instance.json` mints one lowercase-UUID id per home (never re-minted), the initiator signs with one P-256 key under `peers/identity.pem`, and the exclusive home lease already guarantees one process per home. Pairing reuses the inbound authentication registry unchanged: `dsh peer invite` issues a one-time `dshi1_` invitation of a new `peer` enrollment kind scoped to a new orthogonal `harniverse.peer` capability; `dsh peer add` enrolls under the deterministic `peer-<instanceId>` name, redeems the invitation (possession acts as approval), exchanges a challenge, and calls `peer/hello`. The grant is created as `api-client` kind with exactly that one capability. Both sides pin the other's instance id: the invitation asserts the target's, and the readback mismatch aborts with `IDENTITY_MISMATCH`.
+Two Harniverse instances pair home-to-home. The home anchors identity: `instance.json` mints one lowercase-UUID id per home (never re-minted), the initiator signs with one P-256 key under `peers/identity.pem`, and the exclusive home lease already guarantees one running instance per home. Pairing reuses the inbound authentication registry unchanged: `dsh peer invite` issues a one-time `dshi1_` invitation of a new `peer` enrollment kind scoped to a new orthogonal `harniverse.peer` capability; `dsh peer add` enrolls under the deterministic `peer-<instanceId>` name, redeems the invitation (possession acts as approval), exchanges a challenge, and calls `peer/hello`. The grant is created as `api-client` kind with exactly that one capability. Both sides pin the other's instance id: the invitation asserts the target's, and the readback mismatch aborts with `IDENTITY_MISMATCH`.
 
 What was given up: cryptographic binding of the calling grant into the peer record. The Typert Remote boundary does not expose the authenticated principal to service methods, so the record trusts invitation possession plus registry name-uniqueness (the first `peer-<id>` enrollment owns the name; a second key cannot claim it). A challenge-signature hello that binds the calling key waits for principal visibility at the boundary.
 
@@ -31,7 +31,7 @@ Fail-closed rules: every `peer/*` Remote requires `harniverse.peer`; VM executio
 
 - New packages: `dsh-peer-protocol` (vocabulary, codec, identity), `dsh-peer-host` (`ctx.peerHost`, `peer/hello`, `peers.json`, `peer/paired`/`peer/removed` events), `dsh-peer-client` (signing identity, `peer-targets.json`, pairing orchestration), `dsh-peer-app` (`dsh peer invite|add|list|remove|targets|forget`).
 - Additive authentication changes: `harniverse.peer` capability; `peer` enrollment kind redeeming to an `api-client` grant; the enrollment route accepts the kind.
-- Composition: `peer-host` in the web-app bundle; `peer` builtin profile and launcher alias; CLI dependency.
+- Composition: `peer-host` in the web-app bundle; `peer` builtin profile and launcher alias. `dsh-peer-app` is a shared bundle — its manifest declares `dsh.bundle` with `homeOwnership: "shared"` — so `dsh peer` runs beside the serving instance that holds the home lease; the dsh app declares every plugin the bundle mounts, because a shared composition resolves its rows from the installation.
 
 ## Required verification
 
@@ -39,6 +39,7 @@ Fail-closed rules: every `peer/*` Remote requires `harniverse.peer`; VM executio
 - Closed-reason rejections: spent invitation, tampered identity, unreachable origin, VM guard, revoked peer, malformed stores and payloads.
 - The invitation-kind path through the provider (`invitation-runtime.spec.ts`) and the capability vocabulary assertion.
 - `pnpm run build` regenerates the strict `peer/hello` Remote contract; `packages/peer/peer-host/tests/typert.spec.ts` executes the generated schema.
+- The shipped composition itself boots: `packages/bundle/peer-app/tests/peer-app.spec.ts` mounts the real `cordis.patch.yml`; `apps/cli/tests/profile-ownership.spec.ts` boots `dsh peer` beside a home owner and checks the rows of every shipped shared bundle against the dsh app manifest; `apps/cli/tests/built-bin.e2e.ts` boots the management profiles through the built `bin.js`.
 
 ## Alternatives considered
 

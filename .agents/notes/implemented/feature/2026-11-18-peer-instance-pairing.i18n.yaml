@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-18-peer-instance-pairing.md
-2026-11-18-peer-instance-pairing.md: 9248e806647f6584a290dde541b9699da2092030
-2026-11-18-peer-instance-pairing.zh.md: 4385d31e873becfb4b36a7db1a68a0adb2cd0e15
+2026-11-18-peer-instance-pairing.md: ce6064102fc64fab0674033e1268abc399febe95
+2026-11-18-peer-instance-pairing.zh.md: 5990a0b5b6f1dfa53559b5271ce8813ebfb67839

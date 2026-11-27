@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-一次性 peer 配对管理应用,由 `dsh peer` 启动(启动器别名,等价 `--profile peer`)。startup 插件经 [dsh-cmdline](../../boot/cmdline/README.md) 解析命令树并提供 `ctx.peerStartup`;runner 消费它、对 profile 家执行一次操作并请求进程退出。
+一次性 peer 配对管理应用,由 `dsh peer` 启动(启动器别名,等价 `--profile peer`)。startup 插件经 [dsh-cmdline](../../boot/cmdline/README.md) 解析命令树并提供 `ctx.peerStartup`;runner 消费它、对 Harness 家执行一次操作并请求进程退出。
 
 ## 命令
 
@@ -29,6 +29,8 @@
 
 runner 组合 `remote-hosts-ssh`,使 `--ssh-host` 使用与 remote-hosts 协调器相同的传输拨号,主机记录读自 profile 家的 `remote-hosts.json`。委派命令以同样方式解析目标存储的传输——direct 端点原样拨号,`ssh` 传输在调用存活期内转发到目标的环回端口。
 
+其 manifest 声明 `dsh.bundle.homeOwnership: "shared"`,因此每条命令都可以在 Web 持有 home 租约时运行(见[profile 所有权](../../boot/app-boot/README.md#profiles)):`peer invite` 与 `peer list` 对实例正在服务的家同样可用,`peer outbox` 读取的正是该实例写入的台账。组合把命令树收集的每一个值都交给 runner。Harness 家取 runner 行的 `dshHome`(当某个 patch 层设置了它),否则依次取 `$DSH_HOME`、`~/.dsh`(见[home 路径](../../util/home-paths/README.md))。
+
 ## 验证
 
 在仓库根目录:
@@ -37,7 +39,11 @@ runner 组合 `remote-hosts-ssh`,使 `--ssh-host` 使用与 remote-hosts 协调�
 node_modules/.bin/vitest run packages/bundle/peer-app
 node_modules/.bin/tsc -p packages/bundle/peer-app/tsconfig.json --noEmit --incremental false --composite false
 node_modules/.bin/oxlint --config .oxlintrc.json packages/bundle/peer-app
+node_modules/.bin/vitest run apps/cli/tests/profile-ownership.spec.ts
+node_modules/.bin/vitest run --config vitest.e2e.config.ts apps/cli/tests/built-bin.e2e.ts
 ```
+
+包内套件经 Loader 启动随发行版交付的 `cordis.patch.yml`;`apps/cli` 的两个套件分别经源码启动器(在 home 持有者旁边)和构建出的 `bin.js` 启动同一组合。
 
 ## Model Experience
 
@@ -50,5 +56,6 @@ node_modules/.bin/oxlint --config .oxlintrc.json packages/bundle/peer-app
 ## Known Limitations and Deferred Work(已知限制与后续工作)
 
 - `peer invite` 经本地注册表文件写邀请;服务实例通过其注册表 watcher 观察变更,因此已停止的实例必须先启动才能兑换邀请。
+- 家与服务实例共享,而各 peer 存储不取跨进程锁,因此同一瞬间的两个写入者只保留后写的一方:实例追加记录的同时 `peer remove` 重写 `peers.json`,或者尚未拥有身份的家上双方同时铸造身份(`instance.json`)或签名密钥。每次写入都是原子的,存储不会损坏;受影响的 peer 重新配对即可。
 - `peer run` 与 `peer send` 默认同步:预算耗尽而回合仍在运行时打印 `state: 'running'` 并以 0 退出,操作者凭会话与消息 id 经 `dsh peer result` 读取结算;发起方台账不做任何目标不可达时的排队。
 - 此处没有邀请列举或撤销命令;`dsh auth code list` 与 `dsh auth code revoke` 对所有邀请类别拥有这些操作。

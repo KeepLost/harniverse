@@ -36,6 +36,14 @@
         sshHost: !!js ctx.peerStartup.sshHost
         instanceId: !!js ctx.peerStartup.instanceId
         timeoutMs: !!js ctx.peerStartup.timeoutMs
+        prompt: !!js ctx.peerStartup.prompt
+        sessionId: !!js ctx.peerStartup.sessionId
+        cwd: !!js ctx.peerStartup.cwd
+        profile: !!js ctx.peerStartup.profile
         messageId: !!js ctx.peerStartup.messageId
+        surface: !!js ctx.peerStartup.surface
         async: !!js ctx.peerStartup.async
+        attach: !!js ctx.peerStartup.attach
+        path: !!js ctx.peerStartup.path
+        out: !!js ctx.peerStartup.out
         dshHome: !!js process.env.DSH_HOME

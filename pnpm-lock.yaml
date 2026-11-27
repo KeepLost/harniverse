@@ -206,9 +206,24 @@ importers:
       '@deepseek-ai/dsh-base':
         specifier: workspace:^
         version: link:../../packages/bundle/base
+      '@deepseek-ai/dsh-chat-adapter':
+        specifier: workspace:^
+        version: link:../../packages/chat/chat-adapter
+      '@deepseek-ai/dsh-chat-adapter-feishu':
+        specifier: workspace:^
+        version: link:../../packages/chat/chat-adapter-feishu
+      '@deepseek-ai/dsh-chat-adapter-telegram':
+        specifier: workspace:^
+        version: link:../../packages/chat/chat-adapter-telegram
       '@deepseek-ai/dsh-chat-app':
         specifier: workspace:^
         version: link:../../packages/bundle/chat-app
+      '@deepseek-ai/dsh-chat-bridge':
+        specifier: workspace:^
+        version: link:../../packages/chat/chat-bridge
+      '@deepseek-ai/dsh-chat-harniverse-client':
+        specifier: workspace:^
+        version: link:../../packages/chat/chat-harniverse-client
       '@deepseek-ai/dsh-client-ui-agent-preset':
         specifier: workspace:^
         version: link:../../packages/client/ui-agent-preset
@@ -242,6 +257,9 @@ importers:
       '@deepseek-ai/dsh-cordis-client-runner':
         specifier: workspace:^
         version: link:../../packages/extensions/cordis-client-runner
+      '@deepseek-ai/dsh-credentials-local':
+        specifier: workspace:^
+        version: link:../../packages/credentials/credentials-local
       '@deepseek-ai/dsh-environment':
         specifier: workspace:^
         version: link:../../packages/preset/environment
@@ -299,6 +317,9 @@ importers:
       '@deepseek-ai/dsh-pwsh-sandbox':
         specifier: workspace:^
         version: link:../../packages/shell/pwsh-sandbox
+      '@deepseek-ai/dsh-remote-hosts-ssh':
+        specifier: workspace:^
+        version: link:../../packages/ssh/remote-hosts-ssh
       '@deepseek-ai/dsh-session-delivery':
         specifier: workspace:^
         version: link:../../packages/session-query/session-delivery
@@ -329,6 +350,15 @@ importers:
       '@deepseek-ai/dsh-skill-filesystem':
         specifier: workspace:^
         version: link:../../packages/skill/skill-filesystem
+      '@deepseek-ai/dsh-storage':
+        specifier: workspace:^
+        version: link:../../packages/storage/storage
+      '@deepseek-ai/dsh-storage-domain':
+        specifier: workspace:^
+        version: link:../../packages/storage/storage-domain
+      '@deepseek-ai/dsh-storage-json':
+        specifier: workspace:^
+        version: link:../../packages/storage/storage-json
       '@deepseek-ai/dsh-terminal':
         specifier: workspace:^
         version: link:../../packages/terminal/terminal
@@ -2143,6 +2173,9 @@ importers:
       '@deepseek-ai/dsh-cmdline':
         specifier: workspace:^
         version: link:../../boot/cmdline
+      '@deepseek-ai/dsh-home-paths':
+        specifier: workspace:^
+        version: link:../../util/home-paths
       '@deepseek-ai/dsh-peer-client':
         specifier: workspace:^
         version: link:../../peer/peer-client
@@ -2183,6 +2216,12 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
+      js-yaml:
+        specifier: 4.3.2
+        version: 4.3.2
 
   packages/bundle/web-app:
     dependencies:

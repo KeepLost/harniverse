@@ -386,6 +386,27 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     }
   }, 30_000)
 
+  it('boots the shipped management profiles through the published entry', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-builtin-management-'))
+    const commands = [
+      { args: ['peer', 'list'], output: '' },
+      { args: ['peer', 'outbox'], output: '' },
+      { args: ['chat', 'status', '--origin', 'http://127.0.0.1:9'], output: 'signing key: missing' },
+    ]
+    try {
+      for (const { args, output } of commands) {
+        const result = await runBuiltBin(args, { DSH_HOME: home })
+        expect(result.code, `${args.join(' ')}: ${result.stderr}`).toBe(0)
+        expect(result.stderr, args.join(' ')).toBe('')
+        expect(result.stdout, args.join(' ')).toContain(output)
+      }
+      // A shared composition resolves its rows from the installation, never from a profile fallback.
+      expect(existsSync(join(home, 'profiles', 'node_modules'))).toBe(false)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   it('runs the headless profile through its app-owned task positional', async () => {
     const apiKey = 'built-dsh-headless-key'
     const server = await startMockLlmServer({
