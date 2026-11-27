@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The ACP provider runs each subagent in a fresh subprocess and drives it as an Agent Client Protocol client. It is the out-of-process alternative to spawn and fork: the child has its own runtime, session, model configuration, and tools.
+The ACP provider runs each subagent in a fresh subprocess and drives it as an Agent Client Protocol client. It is the out-of-process alternative to spawn and fork: the child has its own runtime, session, model configuration, and tools. The protocol, the process, and the teardown ladder belong to [`acp/acp-client`](../../acp/acp-client/README.md); this package resolves the working directory, answers permissions with its fixed policy, and folds the streamed answer into a `SubagentResult`.
 
 ## Start and ownership
 
@@ -14,7 +14,7 @@ The returned run id is minted in the parent namespace. The child server's sessio
 
 After publication, the provider sends the prompt and collects streamed `agent_message_chunk` text into `SubagentResult.output`. A prompt/transport failure resolves with `stopReason: 'error'`, or `aborted` when the required request signal or disposal requested cancellation.
 
-`dispose()` is idempotent. It removes the signal listener, requests ACP cancellation when possible, then runs this backend's own teardown ladder (`disposeAcpChild`) over the seam's verbs: close stdin and wait `disposeEofGraceMs` for cooperative quiescence, then invoke the handle's `terminate()` escalation (SIGTERM, the spawn grace, SIGKILL — Windows force-terminates directly) and await the subprocess owner's whole-tree exit proof. Every run uses a fresh process; process pooling is not implemented.
+`dispose()` is idempotent. It removes the signal listener, requests ACP cancellation when possible, then the client core runs its teardown ladder (`disposeAcpChild`) over the seam's verbs: close stdin and wait `disposeEofGraceMs` for cooperative quiescence, then invoke the handle's `terminate()` escalation (SIGTERM, the spawn grace, SIGKILL — Windows force-terminates directly) and await the subprocess owner's whole-tree exit proof. Every run uses a fresh process; process pooling is not implemented.
 
 ## Capabilities and context
 

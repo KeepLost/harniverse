@@ -336,6 +336,8 @@
     { "path": "./packages/runtime-diagnostics/plugin-diagnostics-cordis" },
     { "path": "./packages/test-support/agent-loop-testkit" },
     { "path": "./packages/acp/acp" },
+    { "path": "./packages/acp/acp-client" },
+    { "path": "./packages/acp/agent-acp" },
     { "path": "./packages/examples/acp-demo" },
     { "path": "./packages/chat/chat-adapter" },
     { "path": "./packages/chat/chat-harniverse-client" },

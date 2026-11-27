@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-ACP（Agent Client Protocol）提供方会在全新的子进程中运行每个 subagent，并作为 Agent Client Protocol 客户端驱动它。这是 spawn 与 fork 的进程外替代方案：子 agent（智能体）拥有自己的运行时、会话、模型配置和工具。
+ACP（Agent Client Protocol）提供方会在全新的子进程中运行每个 subagent，并作为 Agent Client Protocol 客户端驱动它。这是 spawn 与 fork 的进程外替代方案：子 agent（智能体）拥有自己的运行时、会话、模型配置和工具。协议、进程与回收阶梯属于 [`acp/acp-client`](../../acp/acp-client/README.md)；本包负责解析工作目录、以固定策略回答权限，并把流式回答折叠为 `SubagentResult`。
 
 ## 启动与所有权
 
@@ -14,7 +14,7 @@ ACP（Agent Client Protocol）提供方会在全新的子进程中运行每个 s
 
 发布后，提供方发送提示词，并把流式 `agent_message_chunk` 文本收集到 `SubagentResult.output`。提示词/传输失败会以 `stopReason: 'error'` 兑现；如果必需的请求信号或 dispose（资源释放）请求了取消，则以 `aborted` 兑现。
 
-`dispose()` 是幂等的。它会移除信号监听器，在可行时请求 ACP 取消，然后使用该 seam 定义的操作运行本后端自有的拆卸阶梯（`disposeAcpChild`）：先关闭 stdin 并等待 `disposeEofGraceMs` 让子进程协作式完全停稳，再触发句柄的 `terminate()` 升级（SIGTERM、spawn 宽限期、SIGKILL——Windows 直接强制终止），并等待子进程责任方给出整棵进程树的退出证明。每次运行都使用全新进程；尚未实现进程池。
+`dispose()` 是幂等的。它会移除信号监听器，在可行时请求 ACP 取消，然后由客户端核心使用该 seam 定义的操作运行其回收阶梯（`disposeAcpChild`）：先关闭 stdin 并等待 `disposeEofGraceMs` 让子进程协作式完全停稳，再触发句柄的 `terminate()` 升级（SIGTERM、spawn 宽限期、SIGKILL——Windows 直接强制终止），并等待子进程责任方给出整棵进程树的退出证明。每次运行都使用全新进程；尚未实现进程池。
 
 ## 能力与上下文
 

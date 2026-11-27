@@ -43,8 +43,8 @@ dsh --profile web --dump-config
 | [`core/session`](subsystems/session.md) | 仅追加的 `SessionEvent` 日志和内存存储 | `ctx.sessions` |
 | [`core/system-prompt`](subsystems/system-prompt.md) | 提示词片段与工具 schema 的组装 | `ctx.systemPrompt` |
 | [`core/tools`](subsystems/tools.md) | 作用域化的工具注册表和带把关的执行流水线 | `ctx.tools` |
-| [`core/agent`](subsystems/core.md) | `Agent` 接口、活跃 agent 注册表和 `agent/*` 事件 | `ctx.agents` |
-| [`core/agent-loop`](subsystems/core.md) | 实现该接口的默认驱动器 | `ctx.agentLoop` |
+| [`core/agent`](subsystems/core.md) | `Agent` 接口、agent 机器与步骤驱动器注册表、活跃 agent 注册表和 `agent/*` 事件 | `ctx.agents` |
+| [`core/agent-loop`](subsystems/core.md) | 生命周期拥有者与默认步骤驱动器（模型循环） | `ctx.agentLoop` |
 | [`core/scope`](subsystems/scope.md) | 按 agent 划分作用域的注册原语 | 库，无 ctx 键 |
 | [`llm/llm`](subsystems/llm-streaming.md) | 消息与流式词汇表，以及适配器 seam | `ctx.llm` |
 
@@ -64,7 +64,7 @@ dsh --profile web --dump-config
 
 ## 轮次流程
 
-一个**步骤**是一次模型请求加上它调用的工具。一个**轮次**包含零个或多个步骤：它在领取首条输入之前打开，并在不再欠下任何工作时关闭。
+一个**步骤**是一次模型请求加上它调用的工具。一个**轮次**包含零个或多个步骤：它在领取首条输入之前打开，并在不再欠下任何工作时关闭。拥有这两者的机器位于 `core/agent`；步骤内部发生的事是一个[步骤驱动器](subsystems/core.md#step-drivers)。模型循环是默认驱动器，预设可以贡献另一种，例如面向外部 agent 的 [`acp/agent-acp`](../packages/acp/agent-acp/README.md)。
 
 ```text
 turn/start
@@ -130,6 +130,7 @@ seam 正是替换一个提供方就能改变整个产品的原因。文件系统
 | 添加持久会话状态 | 扩展 `SessionEventMap`；从日志渲染和回放 |
 | 从请求中投影移除已保留的图片 | 注册 Session 消息投影，并通过 `llm/project-request` 持久记录省略结果 |
 | 限制活跃 Agent 准入 | 通过 `ctx.agents.registerAdmission()` 注册策略 |
+| 用外部引擎驱动 agent | 从预设行通过 `ctx.agents.registerDriver()` 贡献一个[步骤驱动器](subsystems/core.md#step-drivers)；[`acp/agent-acp`](../packages/acp/agent-acp/README.md) 就是为 ACP agent 这样做的 |
 | 生成会话标题 | 注册唯一的 `ctx.sessionTitle` 提供方 |
 | 管理同会话目标 | 使用 `ctx.goals`；通过 `agent/*` 续跑 |
 | fork 活跃会话 | `ctx.sessions.fork(source, boundary?, childSessionId?)` |

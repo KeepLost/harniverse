@@ -248,6 +248,31 @@
     },
     {
       "doc": "docs/subsystems/core.md",
+      "symbol": "StepEndReason",
+      "source": "packages/core/agent/src/machine.ts"
+    },
+    {
+      "doc": "docs/subsystems/core.md",
+      "symbol": "StepPosition",
+      "source": "packages/core/agent/src/machine.ts"
+    },
+    {
+      "doc": "docs/subsystems/core.md",
+      "symbol": "AgentHost",
+      "source": "packages/core/agent/src/machine.ts"
+    },
+    {
+      "doc": "docs/subsystems/core.md",
+      "symbol": "StepDriver",
+      "source": "packages/core/agent/src/machine.ts"
+    },
+    {
+      "doc": "docs/subsystems/core.md",
+      "symbol": "StepDriverDefinition",
+      "source": "packages/core/agent/src/machine.ts"
+    },
+    {
+      "doc": "docs/subsystems/core.md",
       "symbol": "PreStepDecision",
       "source": "packages/core/agent/src/runtime-types.ts"
     },

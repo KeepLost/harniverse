@@ -1,11 +1,13 @@
-# acp/ — Agent Client Protocol automation
+# acp/ — Agent Client Protocol
 
 English | [中文](README.zh.md)
 
-The ACP group exposes harness agents to programmatic clients over the Agent Client Protocol. It is an interoperability transport, not a presentation or human-interaction layer; the matching out-of-process subagent *client* lives in [`subagent/subagent-acp`](../subagent/subagent-acp/README.md) because it implements the subagent provider interface.
+The ACP group speaks the Agent Client Protocol in both directions. None of it is a presentation or human-interaction layer.
 
 | Package | Role |
 |---|---|
-| [`acp/`](acp/README.md) | Automation-only ACP server. |
+| [`acp/`](acp/README.md) | Automation-only ACP server: exposes harness agents to programmatic clients. |
+| [`acp-client/`](acp-client/README.md) | Version-neutral client core: process transport, handshake, sessions, turns, and permission answers for any conforming agent. |
+| [`agent-acp/`](agent-acp/README.md) | ACP mode: the step driver that runs a session on an external agent, with the preset template that names it. |
 
-The server contract is documented in [`acp/README.md`](acp/README.md).
+The out-of-process subagent client in [`subagent/subagent-acp`](../subagent/subagent-acp/README.md) is the client core's other consumer; it lives under `subagent/` because it implements the subagent provider interface.

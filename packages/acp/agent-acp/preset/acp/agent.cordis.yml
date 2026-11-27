@@ -1,0 +1,35 @@
+# The ACP mode preset template.
+#
+# A session on this preset is driven by an EXTERNAL agent that speaks the Agent
+# Client Protocol (ACP) over stdio: Claude Code, Codex, Gemini CLI, Antigravity,
+# or any other conforming agent. Harniverse is only the frontend. The
+# composition is therefore empty of everything a harness agent would carry —
+# no persona, no tools, no skills, no MCP servers, no model route — because the
+# external agent brings its own.
+#
+# This directory is a TEMPLATE, not part of the shipped roster: an external
+# agent is something you install yourself. Copy it to
+# `${DSH_HOME:-$HOME/.dsh}/.agent-presets/acp/` and set the command for the
+# agent you have:
+#
+#   Claude Code    command: claude   args: [acp]
+#   Codex          command: codex-acp   args: []
+#   Gemini CLI     command: gemini   args: [--experimental-acp]
+#   Antigravity    command: agy   args: [acp]
+#
+# The agent's own sign-in is its own business: complete it once with the
+# agent's program, outside the harness. A request the agent asks permission for
+# is answered through Harniverse's approval prompt (`permission: ask`).
+#
+# A service row in a preset MUST sit inside a group carrying an `isolate`
+# realm unless it only consumes host registries. This row publishes nothing:
+# it contributes the session's step driver to the host agent registry.
+
+- id: agent-acp
+  name: '@deepseek-ai/dsh-agent-acp'
+  config:
+    command: claude
+    args:
+      - acp
+    env: {}
+    permission: ask

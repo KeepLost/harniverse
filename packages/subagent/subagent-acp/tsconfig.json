@@ -18,6 +18,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../acp/acp-client"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

@@ -53,7 +53,7 @@ interface Config {
 
 ### 包内部具体驱动器
 
-具体 `ReactLoopAgent`、其 inbox 与运行控制均为包内部实现。包根只导出插件／服务／配置约定，包导出映射不提供 `./src/*` 逃逸路径；生命周期拥有方通过 `ctx.agents` 创建 agent，而不是点名、构造或启动驱动器内部组件。一个准备完成的会话只能由一个具体驱动器认领；所有可观测行为都通过会话事件和 `agent/*` 事件分类体系发生。
+默认步骤驱动器 `ModelLoopDriver` 为包内部实现；它运行在 [`dsh-agent`](../agent/README.md) 所拥有的 `AgentMachine` 之上。预设行可以通过 `ctx.agents.registerDriver()` 贡献另一个驱动器，工厂会在发布之前一次性封存 agent 作用域链所指名的驱动器。包根只导出插件／服务／配置约定，包导出映射不提供 `./src/*` 逃逸路径；生命周期拥有方通过 `ctx.agents` 创建 agent，而不是点名、构造或启动驱动器内部组件。一个准备完成的会话只能由一个具体驱动器认领；所有可观测行为都通过会话事件和 `agent/*` 事件分类体系发生。
 
 统一的 `send()` 原语按（`target` × `wakeup`）路由内容与来源；`followup`/`steer`/`inject` 是它的固定预设别名。`followup()` 追加到 `next-turn` FIFO 并唤醒驱动器，`steer()` 追加到 `next-step` inbox 并唤醒驱动器，`inject()` 则追加到同一个 `next-step` inbox，但不唤醒驱动器。在轮次边界，驱动器会先打开持久轮次，再原子领取待处理的 next-step 输入和一条排队提示词；在步骤之间则只领取 next-step 输入。领取操作通过仅执行删除的 splice 移除整批消息，并为每条消息各发出一次 `agent/inbox/claimed { message, turn }`。随后 `agent/pre-step` 返回拒绝结果，或返回将进入拟议步骤的完整消息。拒绝后，已领取批次保持已删除，并关闭不含步骤的轮次；领取后插入的输入仍等待后续处理，而空闲注入会一直等待，直到 follow-up 或 steering 唤醒驱动器。
 
