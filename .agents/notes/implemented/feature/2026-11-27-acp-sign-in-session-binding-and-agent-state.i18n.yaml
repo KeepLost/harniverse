@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-27-acp-sign-in-session-binding-and-agent-state.md
-2026-11-27-acp-sign-in-session-binding-and-agent-state.md: aa97b93bfdbe21120a33b4d1734637f19d6d2fa1
-2026-11-27-acp-sign-in-session-binding-and-agent-state.zh.md: 8d71a114acc4f7487035bcfa2c33880a48b07421
+2026-11-27-acp-sign-in-session-binding-and-agent-state.md: c78984db405485f3745824e0dd2787122854971a
+2026-11-27-acp-sign-in-session-binding-and-agent-state.zh.md: bcd86ccf241d174b1b86a9c04445f5a1a094ba1f

@@ -33,6 +33,8 @@ fold 跟踪完整请求标头快照、步骤边界、表层追加与替换、成
 
 `contextPressure` 携带可选的 `pressureTokens`（提供方报告的最新主请求提示词规模，为未缓存输入加缓存读取与写入之和）、可选的 `projectedTokens`，以及来自最新一条 `request/context` 记录的可选 `contextWindow`。主请求报告用量前两个数字都保持缺失；路由适配器未公布容量时容量也保持缺失。输出与辅助压缩摘要请求的用量都不计入其中，因此轮次流式输出期间 `pressureTokens` 保持不动，等到下一个主请求报告用量时才前进。
 
+步骤驱动器写入的上下文报告（`agent/context`）是自成一类的用量采样：它的 `used` 即最新的 `pressureTokens`，带 `size` 时它即最新的 `contextWindow`。保留自己上下文的驱动器 —— ACP 模式背后的外部 agent —— 是唯一能为它计数的一方，因此同样适用这两个后写生效的槽位与同一个 `projectedTokens` 推算，且不为其计入任何 `tokenUsage`。
+
 `projectedTokens` 是「下一个请求的提示词要花多少」：在该样本之上，加上自取样以来表层增减部分的启发式重新计价，下界钳制为零，折叠走的是测量服务重放的同一份 `surface-fold.ts`。只有增量部分是估算的，因此这个数字既锚定在提供方读数上，又能在内容落地——或压缩遮蔽一段区间——的瞬间做出反应。最后这种情况正是该字段存在的理由：压缩通过直连的 `ctx.llm.stream()` 调用生成摘要，其辅助用量只归入累计计费，所以仅凭 `pressureTokens` 会一直报告压缩前的提示词规模，直到再完成一整个轮次为止。占用率展示读取 `projectedTokens`。
 
 `contextBreakdown` 携带启发式的 `systemTokens`、`toolsTokens` 与 `messageTokens`，描述上下文的组成而非提供方计费规模，因此辅助压缩摘要请求的用量不会进入任何一行。envelope 数字在每条 `request/header` 上按后者胜重新计价；消息数字重放 `surface-fold.ts`——也就是 `measure()` 运行的同一个带位置 fold——因此它在每个事件边界上都等于 `measure().surfaceTokens`，压缩会像缩小下一个请求那样缩小它。三个数字都使用测量服务的固定启发式规则，属于估算值：它们加起来不等于 `projectedTokens`——后者的提供方锚点所体现的恰好是这些明细行仍然带着的误差（按「4 字符 ≈ 1 token」计价，CJK 文本与 JSON schema 会被严重低估）。请把它们当作近似的**组成**呈现，而不是总量。

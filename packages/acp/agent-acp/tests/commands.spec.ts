@@ -14,10 +14,11 @@ const agent = { id: 'a' } as Agent
 
 /** A view whose fields a test may reassign between commands. */
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
-interface Scripted extends Mutable<Omit<AcpDriverView, 'setMode' | 'setConfigOption'>> {
+interface Scripted extends Mutable<Omit<AcpDriverView, 'setMode' | 'setConfigOption' | 'select'>> {
   readonly switches: unknown[]
   setMode(modeId: string): Promise<void>
   setConfigOption(configId: string, value: string | boolean): Promise<void>
+  select(name: string): Promise<boolean>
 }
 
 /** A view whose fields a test sets and whose switches it records. */
@@ -33,8 +34,18 @@ function view(overrides: Partial<AcpDriverView> = {}): Scripted {
       { id: 'fast', name: 'Fast mode', type: 'boolean', currentValue: false },
     ],
     commands: [{ name: '/compact', description: 'Summarize' }],
+    agents: [],
+    current: '',
+    context: undefined,
     ...overrides,
     switches,
+    select: async (name) => {
+      switches.push(['agent', name])
+      if (!state.agents.includes(name)) throw new Error(`no agent named "${name}"`)
+      const changed = state.current !== name
+      state.current = name
+      return changed
+    },
     setMode: async (modeId) => {
       switches.push(['mode', modeId])
       state.modes = { current: modeId, available: state.modes?.available ?? [] }
@@ -64,10 +75,10 @@ function commands(lookup: DriverLookup) {
 }
 
 describe('the acp commands', () => {
-  it('are acp, acp-mode, and acp-option, and each refuses a session no driver runs', async () => {
+  it('are acp, acp-agent, acp-mode, and acp-option, and each refuses a session no driver runs', async () => {
     const { definitions, run } = commands(() => undefined)
-    expect([...definitions.keys()].sort()).toEqual(['acp', 'acp-mode', 'acp-option'])
-    for (const line of ['/acp', '/acp-mode plan', '/acp-option model opus']) {
+    expect([...definitions.keys()].sort()).toEqual(['acp', 'acp-agent', 'acp-mode', 'acp-option'])
+    for (const line of ['/acp', '/acp-agent codex', '/acp-mode plan', '/acp-option model opus']) {
       expect(await run(line)).toEqual({ kind: 'error', text: 'this session does not run on an external ACP agent' })
     }
   })
@@ -87,6 +98,49 @@ describe('the acp commands', () => {
     expect(await run('/acp-mode plan ')).toEqual({ kind: 'success', text: 'plan — available: default (Manual), *plan (Plan)' })
     expect(await run('/acp-option fast off')).toEqual({ kind: 'success', text: 'fast = false (true | false)' })
     expect(scripted.switches).toEqual([['mode', 'plan'], ['option', 'fast', false]])
+  })
+
+  it('acp: names the agent in effect among the agents to pick, and the agent\'s context accounting', async () => {
+    const scripted = view({
+      agent: 'codex',
+      agents: ['claude', 'codex'],
+      current: 'codex',
+      context: { used: 45_000, size: 200_000, cost: { amount: 1.5, currency: 'USD' } },
+    })
+    const { run } = commands(() => scripted)
+    expect(await run('/acp')).toEqual({ kind: 'success', text: [
+      'external agent: codex [codex] (ACP v1)',
+      'external session: external-1 (new)',
+      'agents: claude, *codex',
+      'mode: default — available: *default (Manual), plan (Plan)',
+      'options:',
+      '  model = opus (opus | sonnet)',
+      '  fast = false (true | false)',
+      'agent commands: /compact',
+      'context: 45,000 tokens in use (23% of 200,000), cost 1.5 USD',
+    ].join('\n') })
+    // A report without a window, or without a cost, prints what it has.
+    scripted.context = { used: 1000 }
+    expect((await run('/acp')).text?.endsWith('\ncontext: 1,000 tokens in use')).toBe(true)
+  })
+
+  it('acp-agent: lists the agents, refuses a preset that drives one, and switches the agent the next messages run on', async () => {
+    const single = view()
+    expect(await commands(() => single).run('/acp-agent'))
+      .toEqual({ kind: 'error', text: 'this preset drives one external agent: name several under agents to choose one' })
+    const scripted = view({ agents: ['claude', 'codex'], current: 'claude' })
+    const { run } = commands(() => scripted)
+    expect(await run('/acp-agent')).toEqual({ kind: 'success', text: 'agents: *claude, codex' })
+    expect(await run('/acp-agent  ')).toEqual({ kind: 'success', text: 'agents: *claude, codex' })
+    expect(await run('/acp-agent claude')).toEqual({ kind: 'success', text: 'this session already runs on claude' })
+    expect(await run('/acp-agent codex')).toEqual({
+      kind: 'success',
+      text: 'the next message runs on codex: it continues the external session codex opened in this session while the agent still holds one, and opens a fresh one otherwise',
+    })
+    expect(scripted.switches).toEqual([['agent', 'claude'], ['agent', 'codex']])
+    const unknown = await run('/acp-agent gemini')
+    expect(unknown.kind).toBe('error')
+    expect(unknown.text).toContain('no agent named "gemini"')
   })
 
   it('acp: says what a bare session has, and names a reattached session', async () => {

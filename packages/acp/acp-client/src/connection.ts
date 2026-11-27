@@ -29,6 +29,7 @@ import type {
   AcpAgentDefinition,
   AcpAgentInfo,
   AcpAgentProfile,
+  AcpCapabilities,
   AcpCommand,
   AcpConfigOption,
   AcpConfigValue,
@@ -266,6 +267,11 @@ function withCurrentMode(modes: AcpSessionModes | undefined, currentModeId: stri
 function applySetup(live: Live, setup: AcpSessionSetup): void {
   if (setup.modes !== undefined) live.modes = setup.modes
   if (setup.configOptions !== undefined) live.configOptions = setup.configOptions
+}
+
+/** The first prompt block the agent's handshake did not admit, when there is one. */
+function refusedBlock(prompt: readonly AcpPromptBlock[], capabilities: AcpCapabilities['prompt']): AcpPromptBlock | undefined {
+  return prompt.find(block => block.type !== 'text' && !capabilities[block.type])
 }
 
 /** One connected agent process. */
@@ -530,6 +536,12 @@ class Connection implements AcpConnection {
     const turn = new Turn()
     if (this.closed) {
       turn.fail(new AcpError('transport', 'the agent connection is closed'))
+      return turn
+    }
+    // A block the agent cannot take ends the turn before it opens, so nothing is sent on its behalf.
+    const refused = refusedBlock(prompt, this.agent.capabilities.prompt)
+    if (refused !== undefined) {
+      turn.fail(new AcpError('unsupported', `the agent did not advertise ${refused.type} prompts`))
       return turn
     }
     const previous = live.turn

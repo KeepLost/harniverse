@@ -341,6 +341,32 @@ describe('contextPressure session projection', () => {
     expect(pressure(ctx, session)).toEqual({})
   })
 
+  it('anchors occupancy on a context report a step driver wrote, as on a provider usage sample', async () => {
+    const { ctx, session } = await harness()
+    appendUser(session, 'question')
+    session.append('agent/context', { used: 45_000, size: 200_000 })
+    expect(pressure(ctx, session)).toEqual({ pressureTokens: 45_000, contextWindow: 200_000, projectedTokens: 45_000 })
+    // A report that repeats the standing reading changes nothing.
+    session.append('agent/context', { used: 45_000, size: 200_000 })
+    expect(pressure(ctx, session)).toEqual({ pressureTokens: 45_000, contextWindow: 200_000, projectedTokens: 45_000 })
+    // A new window on an unchanged count moves the capacity alone.
+    session.append('agent/context', { used: 45_000, size: 300_000 })
+    expect(pressure(ctx, session)).toEqual({ pressureTokens: 45_000, contextWindow: 300_000, projectedTokens: 45_000 })
+    session.append('agent/context', { used: 45_000, size: 200_000 })
+    // Surface the harness gained after the sample carries the reading forward, exactly as after a provider sample.
+    appendUser(session, 'a follow-up the person wrote after the report')
+    const carried = pressure(ctx, session)
+    expect(carried.pressureTokens).toBe(45_000)
+    expect(carried.projectedTokens).toBeGreaterThan(45_000)
+    // The same count reported after that growth re-anchors the reading to the surface as it stands.
+    session.append('agent/context', { used: 45_000 })
+    expect(pressure(ctx, session).projectedTokens).toBe(45_000)
+    // A later report without a size keeps the standing capacity, and bills no tokens.
+    session.append('agent/context', { used: 50_000 })
+    expect(pressure(ctx, session)).toMatchObject({ pressureTokens: 50_000, contextWindow: 200_000 })
+    expect(ctx.sessionProjections.snapshot(session).values.tokenUsage).toEqual(ZERO)
+  })
+
   it('does not synthesize zero pressure before a provider usage sample', async () => {
     const { ctx, session } = await harness()
     startStep(session, 1, 1)
@@ -439,7 +465,7 @@ describe('contextPressure session projection', () => {
     const checkpoint = JSON.parse(JSON.stringify(
       ctx.sessionProjections.checkpoint(session),
     )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
-    expect(checkpoint.contextPressure?.ver).toBe(4)
+    expect(checkpoint.contextPressure?.ver).toBe(5)
 
     await meterFiber.dispose()
     expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('contextPressure')

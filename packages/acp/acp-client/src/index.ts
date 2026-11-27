@@ -19,6 +19,7 @@ export type {
   AcpConfigValue,
   AcpConnection,
   AcpContentBlock,
+  AcpCost,
   AcpExit,
   AcpPlanEntry,
   AcpPermissionAnswer,

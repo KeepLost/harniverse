@@ -21,6 +21,9 @@
       "path": "../../acp/acp-client"
     },
     {
+      "path": "../../attachment/attachment"
+    },
+    {
       "path": "../../core/agent"
     },
     {

@@ -66,6 +66,8 @@ Turn and step boundaries and the model token stream are durable `session/event` 
 
 `foldConsumedWork(events)` reads that feed back for the one question the turn sequence cannot answer alone: what became of the work a log consumed. It returns the latest `turn/end` that accounts for consumed work — a turn that entered a model step, or one that claimed inbox input and then failed, was stopped, or was rejected before reaching one — plus whether accepted work was later cancelled out of the inbox unrun. Both facts come from the log, so a cancellation reads the same whichever owner issued it. A no-step turn that took nothing, or emptied its claim and completed, describes no work and is skipped; a `blocked` end over claimed input is an account, because rejection discarded that input.
 
+One durable record belongs to this vocabulary besides the inbox projection: `agent/context` is context-window accounting a step driver reported for a context the harness does not assemble — the tokens it holds, the window it budgets against, and the session cost once known. The model loop reports its accounting on its `assistant/message` and writes none of these; a driver that keeps its own context, such as ACP mode, writes one per distinct report. The token meter's occupancy reading and a person reading the log consume it; nothing derives model-visible history from it.
+
 ### Agent interface (`types.ts`)
 
 The handle every plugin programs against:

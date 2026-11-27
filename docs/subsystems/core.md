@@ -211,7 +211,7 @@ The [event taxonomy](../architecture.md#events) owns the `agent/*` lifecycle, ch
 
 Source: [`packages/core/agent/src/machine.ts`](../../packages/core/agent/src/machine.ts)
 
-`AgentMachine` is the `Agent` every driver of the factory runs on. It owns the inbox, the phase machine, cancellation, maintenance, and the turn: it opens the turn, claims the input, lets `agent/pre-step` decide, appends the entered messages as `user/message`, and closes each step and turn. What happens inside a step is a `StepDriver`, sealed once by the lifecycle owner before publication: [`agent-loop`](../../packages/core/agent-loop/README.md) supplies the model loop as the default, and [`acp/agent-acp`](../../packages/acp/agent-acp/README.md) supplies an external ACP agent through a preset row.
+`AgentMachine` is the `Agent` every driver of the factory runs on. It owns the inbox, the phase machine, cancellation, maintenance, and the turn: it opens the turn, claims the input, lets `agent/pre-step` decide, appends the entered messages as `user/message`, and closes each step and turn. What happens inside a step is a `StepDriver`, sealed once by the lifecycle owner before publication: [`agent-loop`](../../packages/core/agent-loop/README.md) supplies the model loop as the default, and [`acp/agent-acp`](../../packages/acp/agent-acp/README.md) supplies an external ACP agent through a preset row. A driver that keeps its own context reports its accounting as the log-only `agent/context` record; the model loop reports its own on `assistant/message` and writes none.
 
 ```ts type-equiv
 /** How a step can end on its own: the driver owes nothing further for this turn. */

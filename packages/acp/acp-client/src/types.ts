@@ -30,11 +30,19 @@ export interface AcpAgentDefinition {
   readonly authMethod?: string
 }
 
-/** A prompt block this client sends. Prompts are text. */
-export interface AcpPromptBlock {
-  readonly type: 'text'
-  readonly text: string
-}
+/**
+ * A prompt block this client sends. Every agent takes text; an image needs
+ * the `image` prompt capability, and a prompt carrying one without it is
+ * refused before anything is sent.
+ */
+export type AcpPromptBlock =
+  | { readonly type: 'text'; readonly text: string }
+  | {
+    readonly type: 'image'
+    /** Base64 encoding of the image bytes, as the protocol's content block carries it. */
+    readonly data: string
+    readonly mimeType: string
+  }
 
 /** A content block an agent streamed. Non-text blocks keep their protocol fields untouched. */
 export interface AcpContentBlock {
@@ -64,11 +72,21 @@ export interface AcpPlanEntry {
   readonly status?: string
 }
 
+/** Cumulative session cost an agent reported, in the unit the agent named. */
+export interface AcpCost {
+  readonly amount: number
+  /** ISO code for money, or the agent's own unit, such as `credits`. */
+  readonly currency: string
+}
+
 /** Context-window accounting an agent reported. */
 export interface AcpUsage {
+  /** Tokens currently in context. */
   readonly used?: number
+  /** Total context window size in tokens. */
   readonly size?: number
-  readonly cost?: unknown
+  /** Session cost so far; absent unless the agent reported both of its fields. */
+  readonly cost?: AcpCost
 }
 
 /** A command the agent offers inside a prompt. */
@@ -111,6 +129,12 @@ export type AcpUpdate =
   | { readonly kind: 'tool-call'; readonly patch: AcpToolCallPatch }
   /** The whole plan, or the whole of one named plan when the agent keeps several. */
   | { readonly kind: 'plan'; readonly entries: readonly AcpPlanEntry[]; readonly planId?: string }
+  /**
+   * A plan the agent keeps as a document rather than an entry list: its whole
+   * text, replaced by every report, and the file it lives in when the agent
+   * named one.
+   */
+  | { readonly kind: 'plan-document'; readonly planId: string; readonly content: string; readonly path?: string }
   | { readonly kind: 'plan-removed'; readonly planId: string }
   | { readonly kind: 'usage'; readonly usage: AcpUsage }
   | { readonly kind: 'session-info'; readonly title?: string; readonly updatedAt?: string }
@@ -219,7 +243,10 @@ export interface AcpSession {
   /**
    * Send one prompt and observe the turn it starts. A session runs one turn at
    * a time; a second prompt while a turn is active rejects with an `AcpError`.
-   * @param prompt - text blocks the agent receives.
+   * A block the agent's handshake did not admit, such as an image without the
+   * `image` prompt capability, ends the turn with an `AcpError` of kind
+   * `unsupported` before anything is sent.
+   * @param prompt - the text and image blocks the agent receives.
    * @param options - local cancellation.
    * @returns the turn's updates and its end.
    */
@@ -259,7 +286,7 @@ export interface AcpCapabilities {
   readonly list: boolean
   /** `closeSession` is available. */
   readonly close: boolean
-  /** Prompt content the agent accepts. */
+  /** Prompt content the agent accepts: an image block needs `image`. */
   readonly prompt: {
     readonly image: boolean
     readonly audio: boolean

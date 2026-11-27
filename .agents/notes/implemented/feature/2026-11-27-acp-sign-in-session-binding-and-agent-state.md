@@ -44,7 +44,7 @@ An agent is asked to sign in exactly when it asks to be, through its own browser
 
 The run against the real adapters found one defect the scripted agent could not: a stream the agent leaves behind can fail more than once — one write past its death is one `error` event — and a listener registered for the first only left the second unobserved, which ends the process. The transport now keeps its listeners for the life of the stream.
 
-Left as found, each in the owning README: attachments are not forwarded; the agent's images and audio are dropped; usage is not surfaced; a title the agent reports after a reopen is not applied while an earlier one already was; one external agent per preset.
+Left as found, each in the owning README: attachments are not forwarded; the agent's images and audio are dropped; usage is not surfaced; a title the agent reports after a reopen is not applied while an earlier one already was; one external agent per preset. The content gaps and the single-agent limit are closed in [ACP content passage and several agents](2026-11-28-acp-content-passage-and-several-agents.md).
 
 ## Required verification
 

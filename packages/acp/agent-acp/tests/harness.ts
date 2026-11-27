@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
+import { LocalAttachmentStore } from '@deepseek-ai/dsh-attachment-local'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -39,6 +40,8 @@ export interface Turn {
   question?: { message: string; requestedSchema: Record<string, unknown> }
   settle?: number
   exit?: number
+  /** Never answer the prompt until it is cancelled. */
+  hang?: boolean
 }
 
 /** The script every process of the fake agent follows. */
@@ -49,6 +52,8 @@ export interface Scenario {
   auth?: { method: 'agent' | 'terminal'; url?: string; twice?: boolean; env?: boolean; marker?: 'beside-log' }
   options?: { modes?: unknown; configOptions?: Record<string, unknown>[] }
   loadFails?: boolean
+  /** Advertise image prompts. */
+  imagePrompts?: boolean
 }
 
 /** What a harness mounts beside the factory every harness mounts. */
@@ -69,6 +74,8 @@ export interface Mounts {
   emptyCredentials?: boolean
   /** Leaves the fake agent's command out of the row, so the config names every launch field itself. */
   bare?: boolean
+  /** Mounts the local attachment store under the harness directory. */
+  attachments?: boolean
 }
 
 export interface Harness {
@@ -105,6 +112,7 @@ async function mount(config: Partial<acp.Config>, mounts: Mounts, files: Files):
   }
   if (mounts.projections === true) await ctx.plugin(SessionProjectionRegistry)
   if (mounts.commands === true) await ctx.plugin(CommandRuntime)
+  if (mounts.attachments === true) await ctx.plugin(LocalAttachmentStore, { dshHome: files.dir })
   if (mounts.questions !== undefined) {
     await ctx.plugin(UserQuestionService)
     const answer = mounts.questions

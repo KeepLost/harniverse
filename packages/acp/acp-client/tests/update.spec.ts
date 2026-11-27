@@ -77,9 +77,14 @@ describe('normalizeUpdate', () => {
     expect(normalizeUpdate({ sessionUpdate: 'plan' }).kind).toBe('other')
   })
 
-  it('reads usage numbers and cost; nothing numeric is other', () => {
-    expect(normalizeUpdate({ sessionUpdate: 'usage_update', used: 10, size: 100, cost: { amount: 1 } }))
-      .toEqual({ kind: 'usage', usage: { used: 10, size: 100, cost: { amount: 1 } } })
+  it('reads usage numbers and a well-formed cost; nothing numeric is other', () => {
+    expect(normalizeUpdate({ sessionUpdate: 'usage_update', used: 10, size: 100, cost: { amount: 1.5, currency: 'USD' } }))
+      .toEqual({ kind: 'usage', usage: { used: 10, size: 100, cost: { amount: 1.5, currency: 'USD' } } })
+    // A cost without both of its fields, a null one, and an absent one all read as no cost.
+    expect(normalizeUpdate({ sessionUpdate: 'usage_update', used: 10, cost: { amount: 1 } }))
+      .toEqual({ kind: 'usage', usage: { used: 10 } })
+    expect(normalizeUpdate({ sessionUpdate: 'usage_update', used: 10, cost: null }))
+      .toEqual({ kind: 'usage', usage: { used: 10 } })
     expect(normalizeUpdate({ sessionUpdate: 'usage_update', used: '10' }).kind).toBe('other')
     expect(normalizeUpdate({ sessionUpdate: 'usage_update', size: 5 })).toEqual({ kind: 'usage', usage: { size: 5 } })
     expect(normalizeUpdate({ sessionUpdate: 'usage_update', used: 1 })).toEqual({ kind: 'usage', usage: { used: 1 } })
@@ -129,9 +134,21 @@ describe('plan, option, and command reports', () => {
     expect(normalizeUpdate({ sessionUpdate: 'plan', entries: [{ content: 'One' }] })).toEqual({ kind: 'plan', entries: [{ content: 'One' }] })
   })
 
-  it('leaves a plan kept as a document, a malformed one, and an unidentified removal as other', () => {
-    const markdown = { sessionUpdate: 'plan_update', plan: { type: 'markdown', planId: 'p1', content: '# Plan' } }
-    expect(normalizeUpdate(markdown)).toEqual({ kind: 'other', sessionUpdate: 'plan_update', update: markdown })
+  it('reads a plan the agent keeps as a document: its whole text, and the file it lives in when named', () => {
+    expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'markdown', planId: 'p1', content: '# Plan\n\n- [ ] one' } }))
+      .toEqual({ kind: 'plan-document', planId: 'p1', content: '# Plan\n\n- [ ] one' })
+    expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'markdown', planId: 'p1', content: '# Plan', path: '/plans/p1.md' } }))
+      .toEqual({ kind: 'plan-document', planId: 'p1', content: '# Plan', path: '/plans/p1.md' })
+    expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'markdown', planId: 'p1', content: '# Plan', path: null } }))
+      .toEqual({ kind: 'plan-document', planId: 'p1', content: '# Plan' })
+  })
+
+  it('leaves a malformed plan and an unidentified removal as other', () => {
+    const malformed = { sessionUpdate: 'plan_update', plan: { type: 'markdown', planId: 'p1', content: 42 } }
+    expect(normalizeUpdate(malformed)).toEqual({ kind: 'other', sessionUpdate: 'plan_update', update: malformed })
+    expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'markdown', planId: 'p1' } }).kind).toBe('other')
+    expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'audio', planId: 'p1' } }).kind).toBe('other')
+    expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'markdown', content: '# Plan' } }).kind).toBe('other')
     expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'items', entries: [] } }).kind).toBe('other')
     expect(normalizeUpdate({ sessionUpdate: 'plan_update', plan: { type: 'items', planId: 'p1', entries: 'x' } }).kind).toBe('other')
     expect(normalizeUpdate({ sessionUpdate: 'plan', entries: 'x' }).kind).toBe('other')

@@ -10,6 +10,7 @@ import { readConfigOptions } from './options.ts'
 import type {
   AcpCommand,
   AcpContentBlock,
+  AcpCost,
   AcpPlanEntry,
   AcpStopReason,
   AcpToolCallPatch,
@@ -138,8 +139,15 @@ function readCommands(value: unknown): AcpCommand[] | undefined {
   return commands
 }
 
+/** Read a whole message's content blocks; `undefined` when the value is not an array of typed objects. */
 function wholeMessage(raw: RawRecord): AcpContentBlock[] | undefined {
   return contentBlocks(raw.content)
+}
+
+/** Read a cost that carries both of its fields; anything else reads as no cost. */
+function readCost(value: unknown): { readonly cost?: AcpCost } {
+  if (!isRecord(value) || typeof value.amount !== 'number' || typeof value.currency !== 'string') return {}
+  return { cost: { amount: value.amount, currency: value.currency } }
 }
 
 /**
@@ -175,9 +183,17 @@ export function normalizeUpdate(raw: RawRecord): AcpUpdate {
       return entries === undefined ? other : { kind: 'plan', entries }
     }
     case 'plan_update': {
-      // A named plan replaces its earlier entries whole; a plan the agent keeps as a document has no entries.
       const plan = raw.plan
-      if (!isRecord(plan) || plan.type !== 'items' || typeof plan.planId !== 'string') return other
+      if (!isRecord(plan) || typeof plan.planId !== 'string') return other
+      if (plan.type === 'markdown') {
+        // A document carries its whole text; a file path names where the agent keeps it.
+        const content = text(plan.content)
+        if (content === undefined) return other
+        const path = text(plan.path)
+        return { kind: 'plan-document', planId: plan.planId, content, ...path === undefined ? {} : { path } }
+      }
+      // A named plan replaces its earlier entries whole; a type this client does not know is not read.
+      if (plan.type !== 'items') return other
       const entries = planEntries(plan)
       return entries === undefined ? other : { kind: 'plan', entries, planId: plan.planId }
     }
@@ -202,7 +218,7 @@ export function normalizeUpdate(raw: RawRecord): AcpUpdate {
         usage: {
           ...used === undefined ? {} : { used },
           ...size === undefined ? {} : { size },
-          ...raw.cost === undefined ? {} : { cost: raw.cost },
+          ...readCost(raw.cost),
         },
       }
     }

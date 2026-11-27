@@ -406,7 +406,7 @@ describe('the plugin', () => {
 })
 
 describe('what the log carries', () => {
-  it('drops non-text agent output, passes over plan, notice, usage, and session-info updates, and reads every tool-call shape', async () => {
+  it('notes an image it cannot keep, passes over plan, notice, and session-info updates, records usage, and reads every tool-call shape', async () => {
     const h = await harness([{
       updates: [
         { sessionUpdate: 'agent_message_chunk', content: { type: 'image', data: 'AAA', mimeType: 'image/png' } },
@@ -428,13 +428,16 @@ describe('what the log carries', () => {
       const events = core(agent)
       const message = events.find(event => event.type === 'assistant/message')
       // The trailing speech follows the tool calls, so it opens the next step's message.
-      expect(message?.type === 'assistant/message' && message.data.message.content.map(block => block.type)).toEqual(['tool-call', 'tool-call'])
-      expect(events.filter(event => event.type === 'assistant/message').map(textOf)).toEqual(['[execute][tool]', 'ok'])
+      // No attachment store is mounted, so each image is kept as a note saying where it would be.
+      const note = '[image (image/png) not shown: the harness mounted no attachment store]'
+      expect(message?.type === 'assistant/message' && message.data.message.content.map(block => block.type)).toEqual(['tool-call', 'tool-call', 'text'])
+      expect(events.filter(event => event.type === 'assistant/message').map(textOf)).toEqual([`[execute][tool]${note}`, 'ok'])
       expect(events.filter(event => event.type === 'tool/call').map(event => event.type === 'tool/call' && [event.data.name, event.data.arguments]))
         .toEqual([['execute', '{"cmd":"make"}'], ['tool', '']])
-      // Neither call reported text: the first falls back to its title, the second has none.
+      // The first call reported an image where its text would be; the second reported nothing and has no title.
       expect(events.filter(event => event.type === 'tool/result').map(event => event.type === 'tool/result' && event.data.message.content[0]?.content))
-        .toEqual([[{ type: 'text', text: 'Build' }], [{ type: 'text', text: '' }]])
+        .toEqual([[{ type: 'text', text: note }], [{ type: 'text', text: '' }]])
+      expect(events.find(event => event.type === 'agent/context')).toMatchObject({ data: { used: 1, size: 2 } })
     } finally {
       await h.ctx.fiber.dispose()
       rmSync(h.dir, { recursive: true, force: true })

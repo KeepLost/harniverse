@@ -4,6 +4,8 @@
 
 import { z } from 'zod'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
+// Type-only: resolves the `agent/context` event the occupancy fold reads.
+import type {} from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { ContextPressureProjection, TokenUsageProjection } from './projection.ts'
@@ -159,6 +161,11 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
  * consistency is claimed — the pair is explicitly not one atomic request
  * observation (see {@link ContextPressureProjection}).
  *
+ * A context report a step driver wrote (`agent/context`) is a usage sample
+ * too: its `used` is the numerator and its `size`, when it carries one, is the
+ * denominator, because a driver that keeps its own context is the only one
+ * that can count it.
+ *
  * `pressureTokens` is prompt-side only, so it holds still while a turn streams
  * and steps forward once the next request reports its usage. Because nothing
  * but a request reports usage, it also cannot see a compaction: the fold
@@ -191,6 +198,18 @@ ProjectionDefinition<'contextPressure', ContextPressureState> = {
         }
       }
     }
+    const report = event.type === 'agent/context' ? event.data : undefined
+    if (report !== undefined) {
+      const sampled = next.pressureTokens !== report.used || next.sampledSurfaceTokens !== next.surfaceTokens
+      const sized = report.size !== undefined && report.size !== next.contextWindow
+      if (sampled || sized) {
+        next = {
+          ...next,
+          ...sampled ? { pressureTokens: report.used, sampledSurfaceTokens: next.surfaceTokens } : {},
+          ...sized ? { contextWindow: report.size } : {},
+        }
+      }
+    }
     const usage = usageOf(event)
     if (usage !== undefined) {
       const pressureTokens = pressureFrom(usage)
@@ -214,5 +233,5 @@ ProjectionDefinition<'contextPressure', ContextPressureState> = {
       ? {}
       : { projectedTokens: Math.max(0, pressureTokens + surfaceTokens - sampledSurfaceTokens) },
   }),
-  stateVersion: 4,
+  stateVersion: 5,
 }

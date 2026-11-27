@@ -6,7 +6,9 @@
  * @module @deepseek-ai/dsh-agent-acp/driver
  */
 
-import type { AgentHost, StepDriver, StepEndReason, StepPosition } from '@deepseek-ai/dsh-agent'
+import { basename } from 'node:path'
+import type { AgentContextEventData, AgentHost, StepDriver, StepEndReason, StepPosition } from '@deepseek-ai/dsh-agent'
+import type { AttachmentStore, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { allowAnswer, connectAcpAgent, isAcpError, isAcpNotFound } from '@deepseek-ai/dsh-acp-client'
 import type {
   AcpAgentDefinition,
@@ -30,6 +32,7 @@ import type {
   AcpToolCallPatch,
   AcpTurnEnd,
   AcpUpdate,
+  AcpUsage,
 } from '@deepseek-ai/dsh-acp-client'
 import {
   BlockAssembler,
@@ -48,14 +51,29 @@ import type {} from '@deepseek-ai/dsh-session-title'
 // Type-only: resolves the `approval` service the permission answerer reads through `ctx.get`.
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { planTodos } from './plan.ts'
-import { recordedBinding, type AcpSessionEventData } from './session.ts'
+import { appliedTitle, recordedBinding, recordedContext, type AcpSessionEventData } from './session.ts'
 
 /** How the driver answers the external agent's permission requests. */
 export type AcpPermissionMode = 'ask' | 'allow' | 'reject'
 
-/** What the plugin resolved for one agent's driver. */
+/** How the plugin launches one agent: a definition whose arguments are always set. */
+export type LaunchDefinition = AcpAgentDefinition & { readonly args: readonly string[] }
+
+/** One external agent the row can launch. */
+export interface AcpLaunch {
+  /** Name the person picks the agent by. */
+  readonly name: string
+  readonly definition: LaunchDefinition
+  /** Resolves the credential-backed environment of one start; a resolved value is never kept. */
+  readonly resolveEnv?: () => Promise<Record<string, string>>
+}
+
+/** What the plugin resolved for one row's driver. */
 export interface AcpDriverOptions {
-  readonly definition: AcpAgentDefinition
+  /** Every agent the row can drive, in configuration order. */
+  readonly agents: readonly AcpLaunch[]
+  /** The agent a session runs until its own log or the person names another. */
+  readonly defaultAgent: string
   /** Working directory of the external process; the session's own when omitted. */
   readonly cwd: string | undefined
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
@@ -64,8 +82,6 @@ export interface AcpDriverOptions {
   readonly questions?: AcpQuestionAnswerer
   /** Asks the person to complete a terminal sign-in; omitted refuses one. */
   readonly terminalSignIn?: AcpSignInHooks['terminal']
-  /** Resolves the credential-backed environment of one start; a resolved value is never kept. */
-  readonly resolveEnv?: () => Promise<Record<string, string>>
   /** Whether a reopened session reattaches to the external session its own log records. */
   readonly resume: boolean
 }
@@ -80,6 +96,21 @@ export interface AcpDriverView {
   readonly modes: AcpSessionModes | undefined
   readonly configOptions: readonly AcpConfigOption[] | undefined
   readonly commands: readonly AcpCommand[] | undefined
+  /** The agents a person can pick by name; empty for a row that drives one. */
+  readonly agents: readonly string[]
+  /** The agent the next message runs on; empty for a row that drives one. */
+  readonly current: string
+  /** The agent's latest context accounting, once it reported one. */
+  readonly context: AgentContextEventData | undefined
+  /**
+   * Choose the agent the next messages run on. A running external turn refuses
+   * the switch. A different agent starts its own process, and its next message
+   * reattaches to the external session it opened earlier in this session when
+   * it still holds one.
+   * @param name - one of `agents`.
+   * @returns whether the agent in effect changed.
+   */
+  select(name: string): Promise<boolean>
   /** Switch the session's mode.
    * @param modeId - one of the offered modes.
    */
@@ -123,33 +154,139 @@ function text(content: AcpContentBlock): string | undefined {
   return content.type === 'text' && typeof content.text === 'string' ? content.text : undefined
 }
 
+/** An image the person attached or the agent sent, as the protocol carries it. */
+interface Image {
+  readonly data: string
+  readonly mimeType: string
+  /** Display name without local path information. */
+  readonly name?: string
+}
+
+/** Read a content block as an image; anything else, or an image missing a field, reads as none. */
+function imageOf(content: AcpContentBlock): Image | undefined {
+  if (content.type !== 'image' || typeof content.data !== 'string' || typeof content.mimeType !== 'string') return undefined
+  const name = typeof content.uri === 'string' ? basename(content.uri).trim() : ''
+  return { data: content.data, mimeType: content.mimeType, ...name === '' ? {} : { name } }
+}
+
+/** What building one prompt found. */
+interface BuiltPrompt {
+  readonly blocks: AcpPromptBlock[]
+  /** Each person's image that stays behind, with the reason the person reads. */
+  readonly withheld: string[]
+}
+
+/** One block of the person's input, in its order. */
+type Input =
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'image'; readonly attachment: ImageAttachmentRef; readonly label: string }
+
+/** What reading one stored image yielded. */
+type Read = { readonly data: Uint8Array } | { readonly failure: string }
+
+/** Read one stored image; a read that fails yields the failure for the person rather than the turn. */
+async function readStored(store: AttachmentStore, attachment: ImageAttachmentRef, signal: AbortSignal): Promise<Read> {
+  try {
+    const { data } = await store.readImage(attachment, signal)
+    return { data }
+  } catch (error: unknown) {
+    // A stored image that cannot be read back stays behind: the turn goes on, and the person reads why.
+    return { failure: errorChain(error) }
+  }
+}
+
 /**
- * Prompt blocks for the step's input: the text of what the person wrote.
- * Context that harness plugins inject is left out, because the external agent
- * owns its own context; a step without person-written text sends a placeholder.
+ * Prompt blocks for the step's input: the text and the images the person
+ * wrote, in their order. Context that harness plugins inject is left out,
+ * because the external agent owns its own context. An image reaches the agent
+ * only when its handshake admits image prompts and the attachment store reads
+ * it back; otherwise it stays behind and is named for the person. A prompt
+ * without a single block sends a placeholder.
  * @param messages - the messages the machine entered for this step.
- * @returns the text blocks the external agent receives.
+ * @param store - the attachment store holding the person's images.
+ * @param acceptsImages - whether the agent's handshake admitted image prompts.
+ * @param signal - ends an image read when the step is cancelled.
+ * @returns the blocks the external agent receives and the images withheld.
  */
-function promptBlocks(messages: readonly UserMessage[]): AcpPromptBlock[] {
-  const blocks: AcpPromptBlock[] = []
+async function promptBlocks(
+  messages: readonly UserMessage[],
+  store: AttachmentStore | undefined,
+  acceptsImages: boolean,
+  signal: AbortSignal,
+): Promise<BuiltPrompt> {
+  const input: Input[] = []
   for (const message of messages) {
     if (message.source.kind !== 'user') continue
     for (const block of message.content) {
-      if (block.type === 'text' && block.text.trim() !== '') blocks.push({ type: 'text', text: block.text })
+      if (block.type === 'text') {
+        if (block.text.trim() !== '') input.push({ type: 'text', text: block.text })
+      } else if (block.type === 'image') {
+        input.push({ type: 'image', attachment: block.attachment, label: block.attachment.name ?? 'an image' })
+      }
     }
   }
-  return blocks.length === 0 ? [{ type: 'text', text: '(no text content)' }] : blocks
+  // Every image is read before the prompt is assembled, so assembling it decides nothing asynchronously.
+  const images = input.filter((part): part is Extract<Input, { type: 'image' }> => part.type === 'image')
+  const reads = store === undefined ? [] : await Promise.all(images.map(image => readStored(store, image.attachment, signal)))
+  const blocks: AcpPromptBlock[] = []
+  const withheld: string[] = []
+  for (const part of input) {
+    if (part.type === 'text') {
+      blocks.push({ type: 'text', text: part.text })
+      continue
+    }
+    if (!acceptsImages) {
+      withheld.push(`${part.label}: this agent does not accept images`)
+      continue
+    }
+    const read = reads[images.indexOf(part)]
+    if (read === undefined) {
+      withheld.push(`${part.label}: the harness mounted no attachment store`)
+    } else if ('data' in read) {
+      blocks.push({ type: 'image', data: Buffer.from(read.data).toString('base64'), mimeType: part.attachment.mediaType })
+    } else {
+      withheld.push(`${part.label}: ${read.failure}`)
+    }
+  }
+  return { blocks: blocks.length === 0 ? [{ type: 'text', text: '(no text content)' }] : blocks, withheld }
 }
 
-/** The text a tool call reported, as the content of its model-facing result. */
-function resultContent(call: SegmentCall): ContentBlock[] {
-  const blocks: ContentBlock[] = []
-  for (const item of call.completion?.content ?? []) {
-    const block: unknown = item.type === 'content' ? item.content : undefined
-    const value = typeof block === 'object' && block !== null ? text(block as AcpContentBlock) : undefined
-    if (value !== undefined) blocks.push({ type: 'text', text: value })
+/** A token count fit for the log: whole and within its range, or absent. */
+function count(value: number | undefined, minimum: number): number | undefined {
+  return value !== undefined && Number.isFinite(value) && value >= minimum ? Math.floor(value) : undefined
+}
+
+/**
+ * The record one usage report writes. Only counts that are whole numbers in
+ * range reach the log; a report without a usable `used` writes nothing.
+ * @param usage - the agent's report.
+ * @returns the `agent/context` payload, or `undefined` for a report that says nothing recordable.
+ */
+function contextData(usage: AcpUsage): AgentContextEventData | undefined {
+  const used = count(usage.used, 0)
+  if (used === undefined) return undefined
+  const size = count(usage.size, 1)
+  const cost = usage.cost
+  return {
+    used,
+    ...size === undefined ? {} : { size },
+    ...cost === undefined || count(cost.amount, 0) === undefined ? {} : { cost: { amount: cost.amount, currency: cost.currency } },
   }
-  return blocks.length === 0 ? [{ type: 'text', text: call.title ?? '' }] : blocks
+}
+
+/** Whether a recorded binding was made by the launch `definition` describes. */
+function launched(definition: LaunchDefinition, recorded: AcpSessionEventData): boolean {
+  const { command, args } = definition
+  return recorded.command === command
+    && recorded.args.length === args.length && args.every((arg, index) => arg === recorded.args[index])
+}
+
+/** Whether two context records say the same thing. */
+function sameContext(left: AgentContextEventData, right: AgentContextEventData): boolean {
+  return left.used === right.used && left.size === right.size
+    && (left.cost === undefined || right.cost === undefined
+      ? left.cost === right.cost
+      : left.cost.amount === right.cost.amount && left.cost.currency === right.cost.currency)
 }
 
 /**
@@ -200,12 +337,16 @@ export class AcpStepDriver implements StepDriver<void> {
   private connecting: Promise<AcpConnection> | undefined
   private session: AcpSession | undefined
   private exchange: Exchange | undefined
+  /** Whether a step is opening or running an external turn. */
+  private busy = false
   /** The segment the running step writes, where a question the agent asks is recorded. */
   private segment: Segment | undefined
   /** The external session in effect and how it was reached. */
   private binding: AcpDriverView['session']
-  /** The title this driver applied last, which a later report by the agent may replace. */
-  private appliedTitle: string | undefined
+  /** The agent in effect for this session, once its log or the person settled it. */
+  private choice: string | undefined
+  /** The document plans already shown, by plan id: a document reported unchanged is not shown twice. */
+  private readonly documents = new Map<string, string>()
   private readonly signIn: AcpSignInHooks
 
   constructor(
@@ -231,6 +372,8 @@ export class AcpStepDriver implements StepDriver<void> {
     const connection = this.connection
     const current = (): AcpSession | undefined => this.session
     const binding = (): AcpDriverView['session'] => this.binding
+    // A row that drives one agent has nothing to choose, and shows no name.
+    const several = this.options.agents.length > 1
     return {
       agent: this.agentLabel(),
       get protocol(): AcpProtocol | undefined { return connection?.protocol },
@@ -238,6 +381,10 @@ export class AcpStepDriver implements StepDriver<void> {
       get modes(): AcpSessionModes | undefined { return current()?.modes },
       get configOptions(): readonly AcpConfigOption[] | undefined { return current()?.configOptions },
       get commands(): readonly AcpCommand[] | undefined { return current()?.commands },
+      agents: several ? this.options.agents.map(agent => agent.name) : [],
+      current: several ? this.selected() : '',
+      context: recordedContext(this.host.session),
+      select: async name => this.select(name),
       setMode: async (modeId) => { await this.requireSession().setMode(modeId) },
       setConfigOption: async (configId, value) => { await this.requireSession().setConfigOption(configId, value) },
     }
@@ -250,6 +397,52 @@ export class AcpStepDriver implements StepDriver<void> {
   }
 
   /**
+   * The agent the next message runs on: the one the person chose, else the
+   * one this session last talked to while it still drives it, else the row's
+   * default. The log is read once; a later choice is the person's.
+   */
+  private selected(): string {
+    if (this.choice !== undefined) return this.choice
+    const last = recordedBinding(this.host.session)
+    const named = this.options.agents.find(agent => last !== undefined && launched(agent.definition, last))
+    return (this.choice = named?.name ?? this.options.defaultAgent)
+  }
+
+  /** The launch of the agent in effect. */
+  private launch(): AcpLaunch {
+    const selected = this.selected()
+    const launch = this.options.agents.find(agent => agent.name === selected)
+    // The selection is drawn from the configured names, so it always names one.
+    /* v8 ignore next -- no caller can select a name the row does not drive */
+    if (launch === undefined) throw new LlmError(`no external agent named "${selected}"`, 'ACP_NO_AGENT')
+    return launch
+  }
+
+  /**
+   * Choose the agent the next messages run on. A turn that is opening or
+   * running refuses the switch; a different agent takes a process of its own,
+   * so the running one is reaped.
+   * @param name - one of the row's agents.
+   * @returns whether the agent in effect changed.
+   */
+  private async select(name: string): Promise<boolean> {
+    if (!this.options.agents.some(agent => agent.name === name)) {
+      throw new LlmError(`no agent named "${name}" (${this.options.agents.map(agent => agent.name).join(', ')})`, 'ACP_NO_AGENT')
+    }
+    if (this.busy) {
+      throw new LlmError('the external agent is running a turn: wait for it to end before choosing another agent', 'ACP_TURN_ACTIVE')
+    }
+    const changed = this.selected() !== name
+    this.choice = name
+    if (!changed) return false
+    await this.close()
+    this.forget()
+    // No external session is in effect until the chosen agent opens or resumes one.
+    this.binding = undefined
+    return true
+  }
+
+  /**
    * Write one segment of the external turn.
    * @returns how the external turn ended once this segment is its last, or
    *   `null` when another segment follows.
@@ -259,6 +452,7 @@ export class AcpStepDriver implements StepDriver<void> {
     if (this.exchange === undefined && !messages.some(message => message.source.kind === 'user')) return { kind: 'completed' }
     const segment = new Segment(this.host, this, position)
     this.segment = segment
+    this.busy = true
     try {
       const exchange = (this.exchange ??= await this.open(position, messages))
       const result = await segment.pump(exchange)
@@ -269,9 +463,10 @@ export class AcpStepDriver implements StepDriver<void> {
       // cancelled. A broken connection takes its process with it.
       if (isAcpError(error) && error.kind === 'transport') this.forget()
       else this.exchange = undefined
-      segment.interrupt()
+      await segment.interrupt()
       throw toFailure(error)
     } finally {
+      this.busy = false
       this.segment = undefined
     }
   }
@@ -291,24 +486,36 @@ export class AcpStepDriver implements StepDriver<void> {
 
   /** The agent's reported name once the handshake told it, and its command before that. */
   private agentLabel(): string {
-    return this.connection?.agent.name ?? this.options.definition.command
+    return this.connection?.agent.name ?? this.launch().definition.command
   }
 
   private async open(position: StepPosition, messages: readonly UserMessage[]): Promise<Exchange> {
     const connection = await this.connect()
     const session = (this.session ??= await this.attach(connection, position.signal))
-    const turn = session.prompt(promptBlocks(messages), { signal: position.signal })
+    // The handshake decides what the agent takes, so the prompt is built once it answered.
+    const prompt = await promptBlocks(
+      messages,
+      this.attachments(),
+      connection.agent.capabilities.prompt.image,
+      position.signal,
+    )
+    for (const withheld of prompt.withheld) this.notify(`Not forwarded to the external agent: ${withheld}.`, 'Attachment not forwarded')
+    const turn = session.prompt(prompt.blocks, { signal: position.signal })
     return { iterator: turn.updates[Symbol.asyncIterator](), end: turn.end, held: undefined }
   }
 
   /**
    * Open the external session: reattach to the one this session's own log
-   * records while the agent still holds it, and record a fresh one otherwise.
+   * records for the agent in effect while the agent still holds it, and record
+   * a fresh one otherwise.
    */
   private async attach(connection: AcpConnection, signal: AbortSignal): Promise<AcpSession> {
     const cwd = this.workingDirectory()
-    const recorded = connection.agent.capabilities.resume && this.options.resume ? recordedBinding(this.host.session) : undefined
-    if (recorded !== undefined && this.matches(recorded, cwd)) {
+    const { definition } = this.launch()
+    const recorded = connection.agent.capabilities.resume && this.options.resume
+      ? recordedBinding(this.host.session, data => launched(definition, data))
+      : undefined
+    if (recorded !== undefined) {
       try {
         const session = await connection.resumeSession(recorded.sessionId, { signal })
         this.binding = { id: recorded.sessionId, reached: 'resumed' }
@@ -320,7 +527,7 @@ export class AcpStepDriver implements StepDriver<void> {
       }
     }
     const session = await connection.newSession({ signal })
-    const { command, args = [] } = this.options.definition
+    const { command, args } = definition
     const agentName = connection.agent.name
     this.host.session.append('acp/session', {
       sessionId: session.sessionId,
@@ -333,13 +540,6 @@ export class AcpStepDriver implements StepDriver<void> {
     })
     this.binding = { id: session.sessionId, reached: 'new' }
     return session
-  }
-
-  /** Whether a recorded binding belongs to the agent this row launches in the directory this session uses. */
-  private matches(recorded: AcpSessionEventData, cwd: string): boolean {
-    const { command, args = [] } = this.options.definition
-    return recorded.command === command && recorded.cwd === cwd
-      && recorded.args.length === args.length && recorded.args.every((arg, index) => arg === args[index])
   }
 
   private connect(): Promise<AcpConnection> {
@@ -361,11 +561,12 @@ export class AcpStepDriver implements StepDriver<void> {
   }
 
   private async start(): Promise<AcpConnection> {
-    const credentials = await this.options.resolveEnv?.()
+    const { definition, resolveEnv } = this.launch()
+    const credentials = await resolveEnv?.()
     return connectAcpAgent({
       definition: {
-        ...this.options.definition,
-        ...credentials === undefined ? {} : { env: { ...this.options.definition.env, ...credentials } },
+        ...definition,
+        ...credentials === undefined ? {} : { env: { ...definition.env, ...credentials } },
       },
       cwd: this.workingDirectory(),
       spawn: this.options.spawn,
@@ -404,17 +605,49 @@ export class AcpStepDriver implements StepDriver<void> {
     const titles = this.host.ownerCtx.get('sessionTitle')
     if (titles === undefined) return
     const current = titles.get(this.host.session)
-    // Every applied title is stored as an explicit rename, so a stored title
-    // is the person's own exactly when this driver did not apply it last.
-    if (current !== undefined && current.source.kind === 'user' && current.title !== this.appliedTitle) return
+    // Every applied title is stored as an explicit rename. The one recorded last
+    // is the agent's, so a standing title is the person's own exactly when it is
+    // neither that one nor absent.
+    if (current !== undefined && current.source.kind === 'user' && current.title !== appliedTitle(this.host.session)) return
     if (current?.title === title) return
-    titles.rename(this.host.session, title)
-    this.appliedTitle = title
+    const accepted = titles.rename(this.host.session, title)
+    this.host.session.append('acp/title', { title: accepted.title })
+  }
+
+  /** Record the agent's context accounting; a report that says what the last record says writes nothing. */
+  context(usage: AcpUsage): void {
+    const data = contextData(usage)
+    const last = recordedContext(this.host.session)
+    if (data === undefined || (last !== undefined && sameContext(last, data))) return
+    this.host.session.append('agent/context', data)
+  }
+
+  /** Show a plan the agent keeps as a document; one it reports unchanged is not shown twice. */
+  planDocumentShown(update: Extract<AcpUpdate, { kind: 'plan-document' }>): void {
+    if (this.documents.get(update.planId) === update.content) return
+    this.documents.set(update.planId, update.content)
+    const where = update.path === undefined ? '' : ` (${update.path})`
+    this.notify(`The agent's plan${where}:\n\n${update.content}`, 'Plan document updated')
+  }
+
+  /** Whether a plan id names a document this driver showed. */
+  hasDocument(planId: string): boolean {
+    return this.documents.has(planId)
+  }
+
+  /** Forget a document plan the agent removed; the todo list was never its. */
+  forgetDocument(planId: string): void {
+    this.documents.delete(planId)
   }
 
   /** Show one notice the agent published. */
   notice(update: Extract<AcpUpdate, { kind: 'notice' }>): void {
     this.notify(`${update.title}${update.message === undefined ? '' : `: ${update.message}`}`, update.title)
+  }
+
+  /** The store holding the person's images and the agent's; absent in a composition that mounts none. */
+  attachments(): AttachmentStore | undefined {
+    return this.host.ownerCtx.get('attachments')
   }
 
   private workingDirectory(): string {
@@ -431,6 +664,8 @@ class Segment {
   private readonly assembler = new BlockAssembler()
   private readonly chunkSeqs: number[] = []
   private readonly calls: SegmentCall[] = []
+  /** The images the agent streamed into this segment's message, in arrival order. */
+  private readonly images: Image[] = []
   private block: BlockType | undefined
   private nextIndex = 0
   private flushed = false
@@ -464,11 +699,11 @@ class Segment {
         end = await exchange.end
       } catch (error: unknown) {
         // A broken turn keeps its streamed prefix as an interrupted message.
-        this.flush(true)
+        await this.flush(true)
         throw error
       }
       // A cancelled turn does the same; a refused or failed one streamed in full.
-      this.flush(this.position.signal.aborted)
+      await this.flush(this.position.signal.aborted)
       switch (end.stopReason) {
         case 'end_turn':
           return { kind: 'completed' }
@@ -485,14 +720,14 @@ class Segment {
   }
 
   /** Finalize this segment; the next one is another step of the same external turn. */
-  private close(): null {
-    this.flush(false)
+  private async close(): Promise<null> {
+    await this.flush(false)
     return null
   }
 
   /** Finalize what streamed before a failure; a cancelled step keeps its partial text. */
-  interrupt(): void {
-    this.flush(true)
+  async interrupt(): Promise<void> {
+    await this.flush(true)
   }
 
   /** Record a question the agent asked and what was answered, as one completed call. */
@@ -513,6 +748,12 @@ class Segment {
     switch (update.kind) {
       case 'message-chunk':
       case 'thought-chunk': {
+        // An image is a whole block; it is stored when the segment is written.
+        const image = update.kind === 'message-chunk' ? imageOf(update.content) : undefined
+        if (image !== undefined) {
+          this.images.push(image)
+          return 'open'
+        }
         const value = text(update.content)
         if (value === undefined) return 'open'
         if (this.calls.length > 0) {
@@ -536,8 +777,16 @@ class Segment {
         // A plan report replaces the standing todo list whole.
         this.host.session.append('todo/write', { todos: planTodos(update.entries) })
         return 'open'
+      case 'plan-document':
+        this.driver.planDocumentShown(update)
+        return 'open'
       case 'plan-removed':
-        this.host.session.append('todo/write', { todos: [] })
+        // A document never fed the todo list, so its removal leaves the list alone.
+        if (this.driver.hasDocument(update.planId)) this.driver.forgetDocument(update.planId)
+        else this.host.session.append('todo/write', { todos: [] })
+        return 'open'
+      case 'usage':
+        this.driver.context(update.usage)
         return 'open'
       case 'session-info':
         this.driver.title(update.title)
@@ -595,11 +844,78 @@ class Segment {
     return true
   }
 
-  /** Write the segment's assistant message, then the calls it made and their results. */
-  private flush(interrupted: boolean): void {
+  /**
+   * Store one image the agent sent, as the block the log carries. An image the
+   * harness cannot store — no attachment store, a type the store does not
+   * keep, or bytes it cannot decode — becomes a text note that says so.
+   */
+  private async imageBlock(image: Image): Promise<Extract<ContentBlock, { type: 'image' | 'text' }>> {
+    const note = (reason: string): { type: 'text'; text: string } => ({
+      type: 'text',
+      text: `[image${image.name === undefined ? '' : ` ${image.name}`} (${image.mimeType}) not shown: ${reason}]`,
+    })
+    const store = this.driver.attachments()
+    if (store === undefined) return note('the harness mounted no attachment store')
+    if (!store.imageLimits.mediaTypes.some(mediaType => mediaType === image.mimeType)) {
+      return note(`the harness does not store ${image.mimeType}`)
+    }
+    try {
+      const attachment = await store.saveImage({
+        data: new Uint8Array(Buffer.from(image.data, 'base64')),
+        mediaType: image.mimeType as ImageMediaType,
+        ...image.name === undefined ? {} : { name: image.name },
+      })
+      return { type: 'image', attachment }
+    } catch (error: unknown) {
+      // The bytes failed the store's admission; the person reads why instead of seeing nothing.
+      return note(errorChain(error))
+    }
+  }
+
+  /** The content of a tool call's result: its text and its images, in the order the agent reported them. */
+  private async resultContent(call: SegmentCall): Promise<ContentBlock[]> {
+    const blocks: AcpContentBlock[] = []
+    for (const item of call.completion?.content ?? []) {
+      // Only a standard content item carries a block; a diff or a terminal reference carries none.
+      if (item.type === 'content' && typeof item.content === 'object' && item.content !== null) blocks.push(item.content as AcpContentBlock)
+    }
+    // Every image is stored before the content is assembled, so assembling it decides nothing asynchronously.
+    const stored = await Promise.all(blocks.map(async (block) => {
+      const image = imageOf(block)
+      return image === undefined ? undefined : this.imageBlock(image)
+    }))
+    const content: ContentBlock[] = []
+    for (const [index, block] of blocks.entries()) {
+      const value = text(block)
+      const image = stored[index]
+      if (value !== undefined) content.push({ type: 'text', text: value })
+      else if (image !== undefined) content.push(image)
+    }
+    return content.length === 0 ? [{ type: 'text', text: call.title ?? '' }] : content
+  }
+
+  /**
+   * Write the segment's assistant message, then the calls it made and their
+   * results. An image is stored as a whole block once its bytes are complete,
+   * so a message interrupted before its turn ended keeps its text and none of
+   * its images; a result a tool call reported is complete either way.
+   */
+  private async flush(interrupted: boolean): Promise<void> {
     if (this.flushed) return
     this.flushed = true
     const { turn, step } = this.position
+    if (!interrupted) {
+      const stored = await Promise.all(this.images.map(image => this.imageBlock(image)))
+      for (const block of stored) {
+        if (block.type === 'image') {
+          const index = this.nextIndex++
+          this.chunk({ type: 'block-start', index, blockType: 'image' })
+          this.chunk({ type: 'block-end', index, block })
+        } else {
+          this.chunk({ type: 'text-delta', index: this.openBlock('text'), text: block.text })
+        }
+      }
+    }
     // A message with no block writes nothing; its calls still log below.
     const content = this.chunkSeqs.length === 0 ? [] : interrupted ? this.assembler.interruptedBlocks() : this.assembler.blocks()
     if (content.length > 0) {
@@ -623,7 +939,7 @@ class Segment {
           callId: call.callId,
           content: completion === undefined
             ? [{ type: 'text', text: 'The external agent ended the turn without reporting a result for this tool call.' }]
-            : resultContent(call),
+            : await this.resultContent(call),
           isError,
         }),
         ...isError ? { error: { name: 'AcpToolError', code: completion === undefined ? 'incomplete' : 'failed' } } : {},
