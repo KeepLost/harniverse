@@ -46,6 +46,8 @@ interface Scenario {
   options?: { modes?: unknown; configOptions?: Record<string, unknown>[] }
   /** Make `session/load` fail with an internal error instead of answering. */
   loadFails?: boolean
+  /** Advertise image prompts. */
+  imagePrompts?: boolean
 }
 
 const scenarioPath = process.env.ACP_FAKE_SCENARIO
@@ -89,7 +91,7 @@ app.onRequest(methods.agent.initialize, ({ params }) => {
       },
     agentCapabilities: {
       loadSession: scenario.resumable === true,
-      promptCapabilities: { image: false, audio: false, embeddedContext: false },
+      promptCapabilities: { image: scenario.imagePrompts === true, audio: false, embeddedContext: false },
     },
     authMethods: scenario.auth === undefined
       ? []

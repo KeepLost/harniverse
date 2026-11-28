@@ -42,7 +42,7 @@ const connection = await connectAcpAgent({
 
 一个连接承载任意数量的会话。`newSession()` 在连接的工作目录打开一个会话；`resumeSession()`、`listSessions()` 与 `closeSession()` 仅在 agent 通告了它们时可用，否则以 `unsupported` 类的 `AcpError` 拒绝。v2 agent 无需通告即须提供这三者。
 
-`session.prompt(blocks, { signal })` 启动一个回合，并返回它的 `updates` 与 `end`。一个会话同时只跑一个回合：回合进行中再发 prompt 会拒绝。中止 `signal` 会立即在本客户端一侧以 `cancelled` 结束该回合，并发送 `session/cancel`；下一个 prompt 会等到 agent 安静下来，因此被取消回合的迟到更新永远不会进入其后的回合。agent 进程退出时，进行中的回合以传输错误拒绝，此后的操作一律拒绝。
+`session.prompt(blocks, { signal })` 启动一个回合，并返回它的 `updates` 与 `end`。一个会话同时只跑一个回合：回合进行中再发 prompt 会拒绝。agent 的握手未允诺的块 —— 没有对应 `image` prompt 能力的图像 —— 以 `unsupported` 类的 `AcpError` 结束该回合，任何内容都不会发出。中止 `signal` 会立即在本客户端一侧以 `cancelled` 结束该回合，并发送 `session/cancel`；下一个 prompt 会等到 agent 安静下来，因此被取消回合的迟到更新永远不会进入其后的回合。agent 进程退出时，进行中的回合以传输错误拒绝，此后的操作一律拒绝。
 
 会话还携带 agent 为它提供的东西：`modes`、`configOptions` 与 `commands`，取最后一次报告。`setMode(modeId)` 切换模式，`setConfigOption(configId, value)` 设置一个选项；两者都到达 agent，替换会话所报告的内容，并在 agent 拒绝时拒绝。什么都没报告的会话无处可切。
 
@@ -56,8 +56,9 @@ const connection = await connectAcpAgent({
 | `message`、`thought` | 一次整消息 upsert（v2）。 |
 | `tool-call` | 对一次工具调用的补丁：缺省的字段保持不变，`null` 清除它。 |
 | `plan` | agent 的计划条目，整体一份；agent 保留多份计划时带上计划的 id。 |
+| `plan-document` | agent 以文档形式保存的计划：它的全文、计划的 id，以及 agent 指明时它所在的文件。 |
 | `plan-removed` | agent 撤下的计划的 id。 |
-| `usage` | agent 报告的上下文窗口计量。 |
+| `usage` | agent 报告的上下文窗口计量：使用中的 token 数、窗口大小，以及两个字段齐全时的会话费用。 |
 | `session-info` | agent 报告的会话标题与更新时间。 |
 | `notice` | 给该人的一条通知。 |
 | `mode` | 现在生效的模式。 |
@@ -100,8 +101,7 @@ agent 特定的行为是一个画像：一个 id、它适用的 `agentInfo.name`
 
 ## Known Limitations and Deferred Work
 
-- **prompt 只有文本** — `AcpPromptBlock` 只携带 `text`；图像、音频与嵌入上下文的 prompt 需要本客户端未构建的、按能力门控的形状。
+- **不构建音频与嵌入上下文的 prompt** — `AcpPromptBlock` 携带 `text` 与 `image`；其余按能力门控的 prompt 形状尚无消费者。
 - **没有外部会话记忆** — 这里没有任何东西跨连接记录 agent 的会话 id；需要重新接入的消费者自己存储该 id 并调用 `resumeSession`。
-- **不读取文档形式的计划** — 内容为 Markdown 的 `plan_update` 以 `other` 到达。
 - **只有 stdio** — Streamable HTTP 与 WebSocket 传输在协议中仍是草案，这里没有对应绑定。
 - **没有注册任何画像** — 四个已知 agent 在运行时都不需要请求改写；需要改写的 agent，画像就是它的去处。

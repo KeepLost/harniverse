@@ -19,6 +19,16 @@
 # `command` and `args` instead of `agent`. The known ones start through `npx`,
 # which downloads the package once.
 #
+# Several agents can share one preset: name each under `agents`, with the same
+# keys the top level takes for one agent, and the one a session starts on with
+# `default`. `/acp-agent` then switches the agent the next messages run on.
+# Do not combine `agents` with a top-level `agent` or `command`:
+#
+#   agents:
+#     claude: { agent: claude-acp }
+#     codex: { agent: codex-acp }
+#   default: claude
+#
 # Sign-in happens when the agent first demands it, inside the turn that
 # needed it. An agent that signs in through the browser shows its address in
 # the transcript; one that only offers a terminal sign-in names the program to
@@ -33,6 +43,11 @@
 # (`resume: false` opens a fresh one at every start). A permission request
 # reaches the approval prompt (`permission: ask`). `/acp` shows the agent's
 # session, modes, and options; `/acp-mode` and `/acp-option` switch them.
+#
+# Images travel both ways: the ones the person attaches reach the agent when it
+# accepts image prompts, and the ones the agent sends are stored as attachments
+# of the session. Both need the attachment store in the composition, which the
+# base bundle mounts.
 #
 # A service row in a preset MUST sit inside a group carrying an `isolate`
 # realm unless it only consumes host registries. This row publishes nothing:

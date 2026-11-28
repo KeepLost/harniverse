@@ -1,6 +1,6 @@
 /**
  * The `acp` commands: what the person reads about the external agent of a
- * session, and how they switch its mode and its options.
+ * session, and how they switch its mode, its options, and the agent itself.
  * @module @deepseek-ai/dsh-agent-acp/commands
  */
 
@@ -9,6 +9,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandDefinition } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-commands'
 import type { CommandResult } from '@deepseek-ai/dsh-commands/types'
+import type { AgentContextEventData } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { AcpConfigOption, AcpSessionModes } from '@deepseek-ai/dsh-acp-client'
 import type { AcpDriverView } from './driver.ts'
@@ -38,20 +39,41 @@ function describeOption(option: AcpConfigOption): string {
   return names.length === 0 ? head : `${head} (${names.join(' | ')})`
 }
 
+/** A count with thousands separators, whatever the locale. */
+function count(value: number): string {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
+/** One context report: the fill of the window, and the cost so far. */
+function describeContext(context: AgentContextEventData): string {
+  const fill = context.size === undefined
+    ? ''
+    : ` (${Math.round((context.used / context.size) * 100)}% of ${count(context.size)})`
+  const cost = context.cost === undefined ? '' : `, cost ${context.cost.amount} ${context.cost.currency}`
+  return `context: ${count(context.used)} tokens in use${fill}${cost}`
+}
+
+/** The agents a person can pick, with the one in effect marked. */
+function describeAgents(view: AcpDriverView): string {
+  return view.agents.map(name => (name === view.current ? `*${name}` : name)).join(', ')
+}
+
 /** The whole status of a driven session. */
 function status(view: AcpDriverView): string {
   const lines = [
-    `external agent: ${view.agent}${view.protocol === undefined ? '' : ` (ACP v${view.protocol})`}`,
+    `external agent: ${view.agent}${view.agents.length === 0 ? '' : ` [${view.current}]`}${view.protocol === undefined ? '' : ` (ACP v${view.protocol})`}`,
     view.session === undefined
       ? 'external session: none yet — send a message first'
       : `external session: ${view.session.id} (${view.session.reached === 'resumed' ? 'reattached' : 'new'})`,
   ]
+  if (view.agents.length > 1) lines.push(`agents: ${describeAgents(view)}`)
   if (view.modes !== undefined) lines.push(`mode: ${describeModes(view.modes)}`)
   if ((view.configOptions ?? []).length > 0) lines.push('options:')
   for (const option of view.configOptions ?? []) lines.push(`  ${describeOption(option)}`)
   if ((view.commands ?? []).length > 0) {
     lines.push(`agent commands: ${view.commands?.map(command => command.name).join(', ')}`)
   }
+  if (view.context !== undefined) lines.push(describeContext(view.context))
   return lines.join('\n')
 }
 
@@ -114,6 +136,20 @@ export function registerCommands(ctx: Context, lookup: DriverLookup): void {
         await view.setMode(id)
         // The agent confirms a mode through its next report; the switch itself reads as asked.
         return view.modes === undefined ? `mode ${id}` : describeModes({ ...view.modes, current: id })
+      }),
+    },
+    {
+      name: 'acp-agent',
+      description: 'Show the external agents this session can run on, or choose the one the next messages run on',
+      input: { hint: '<name>' },
+      handler: ({ agent, rawInput }) => run(agent, async (view) => {
+        if (view.agents.length === 0) {
+          return { error: 'this preset drives one external agent: name several under agents to choose one' }
+        }
+        const name = rawInput.trim()
+        if (name === '') return `agents: ${describeAgents(view)}`
+        if (!(await view.select(name))) return `this session already runs on ${name}`
+        return `the next message runs on ${name}: it continues the external session ${name} opened in this session while the agent still holds one, and opens a fresh one otherwise`
       }),
     },
     {

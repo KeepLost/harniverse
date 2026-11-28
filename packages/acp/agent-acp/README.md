@@ -12,7 +12,7 @@ The template carries no persona, tools, skills, MCP servers, or model route: eve
 
 ## What a turn writes
 
-The [`dsh-agent`](../../core/agent/README.md) machine owns the turn and its steps; this driver owns what happens inside a step. One step is one segment of the external agent's turn: the streamed answer becomes `assistant/chunk` events and one `assistant/message`, attributed to `acp`. When the external agent reports a tool call, the segment's message carries the call, `tool/call` records it, and `tool/result` carries the text it reported — all in the step that made the call, so every result lands beside its call. Speech that follows a tool call opens the next step, and waits for every pending call to report first. An `end_turn` closes the turn as `completed`; `max_tokens` as `max-tokens`; a refusal, a failure, or an agent-side cancellation closes it as an error that carries the stop reason.
+The [`dsh-agent`](../../core/agent/README.md) machine owns the turn and its steps; this driver owns what happens inside a step. One step is one segment of the external agent's turn: the streamed answer becomes `assistant/chunk` events and one `assistant/message`, attributed to `acp`. When the external agent reports a tool call, the segment's message carries the call, `tool/call` records it, and `tool/result` carries what it reported — all in the step that made the call, so every result lands beside its call. Speech that follows a tool call opens the next step, and waits for every pending call to report first. An `end_turn` closes the turn as `completed`; `max_tokens` as `max-tokens`; a refusal, a failure, or an agent-side cancellation closes it as an error that carries the stop reason.
 
 A step whose input no person wrote — context a harness plugin injected while no external turn was open — starts no external turn: it is logged and the step completes at once.
 
@@ -23,6 +23,14 @@ A step whose input no person wrote — context a harness plugin injected while n
 | A credential reference nobody stored | `error` (`ACP_CREDENTIAL`), naming the reference |
 | A session with no workspace and no configured `cwd` | `error` (`ACP_NO_CWD`), rather than binding the agent to the server's launch directory |
 
+## Images
+
+The person's images travel with their text, in the order they wrote them: each one is read back from the attachment store and sent as an image block, which the agent takes only when its handshake admitted image prompts. An image the agent cannot take, that no store holds, or that the store cannot read back stays behind; the turn goes on and a notice in the transcript names the image and the reason. A generic file the person attached reaches the agent through the read-only path of its handle text, which the agent's own tools read.
+
+An image the agent sends enters the log as an attachment: one it streams is stored and written after its text, and one a tool call reports takes its place in that call's result, so the conversation shows both. An image the store cannot keep — a type it does not store, bytes it cannot decode — becomes a text note saying so. A message interrupted before its turn ended keeps its text and none of its images.
+
+This needs the attachment store ([`attachment/attachment-local`](../../attachment/attachment-local/README.md)) in the composition; without it every image stays behind or becomes a note.
+
 ## Sign-in
 
 The agent is asked to sign in only when it refuses a request for that reason, so an agent that is signed in already is never asked. The method completed is the one `authMethod` names, else the first agent-driven method the agent advertises, else the first terminal one. A browser sign-in the agent drives itself runs inside the turn that needed it; each address the agent prints while it waits lands in the transcript as a notice. A terminal sign-in becomes a question that names the program to run once, in a terminal, and waits until the person says it is done; without a user-questions seam the turn fails and names the program instead.
@@ -31,20 +39,25 @@ The agent is asked to sign in only when it refuses a request for that reason, so
 
 The first turn opens a session on the agent and records it in the session log as `acp/session`: the agent's session id, how it was launched, and the working directory. When the harness reopens the session, the next turn reattaches to that external session while the agent still holds it and advertises resume; the harness transcript stays either way. An agent that no longer holds the session gets a fresh one, and the transcript says so. A fork inherits its parent's events but none of its own, so it opens an external session of its own. `resume: false` opens a fresh external session at every harness start.
 
+## Several agents in one preset
+
+The row may name several agents under `agents`; a session then runs `default`, else the first entry, until the person picks another with `/acp-agent`. Switching reaps the running agent's process; the chosen agent's next message continues the external session it opened earlier in this same session while it still holds one, and opens a fresh one otherwise. A reopened session continues with the agent it last talked to. The person's switch is kept for the life of the harness process; a switch made after the last message of a session is not remembered across a restart.
+
 ## What the agent reports
 
 | Report | Where it goes |
 |---|---|
 | Plan | The session's standing todo list (`todo/write`), the list the conversation shows; each report replaces it whole. |
-| Title | The session title, until the person names the session themselves. |
+| Plan kept as a document | A notice in the transcript carrying the document's whole text and the file it lives in when the agent named one; a document reported unchanged is shown once. |
+| Title | The session title, until the person names the session themselves; the applied title is recorded as `acp/title`, so the agent's later titles still apply after the session was reopened. |
 | Notice | A notice in the transcript; it starts no external turn. |
 | Question | A question to the person through the user-questions seam, answered field by field; what was asked and answered is recorded as one completed `acp_question` call beside the agent's tool calls. Without the seam the question is declined. |
 | Mode, options, commands | Kept for the `acp` commands, and replaced by every later report. |
-| Usage | Not surfaced; the harness has no record for an external agent's context accounting. |
+| Context and cost | The log-only `agent/context` record of the [`dsh-agent`](../../core/agent/README.md) vocabulary: the tokens the agent holds in context, the window it budgets against, and the session cost so far. The token meter's occupancy ring reads it, and `/acp` prints it. A report that repeats the standing record writes nothing. |
 
 ## The acp commands
 
-The row registers three commands for the sessions it drives. `/acp` shows the external agent, its session, its modes, its options, and the commands it offers inside a prompt. `/acp-mode <mode>` switches the session's mode. `/acp-option <option> <value>` sets one option — a model, an effort, a speed — by id or by name, with `true`/`false` for a boolean one; without a value it shows the option as it stands. A switch reaches the agent through `session/set_mode` or `session/set_config_option` and is refused when the agent does not offer it.
+The row registers four commands for the sessions it drives. `/acp` shows the external agent, its session, the agents to pick from, its modes, its options, the commands it offers inside a prompt, and its context and cost once it reported them. `/acp-agent` lists the agents to pick from and marks the one in effect; `/acp-agent <name>` chooses the agent the next messages run on, which a running turn refuses. `/acp-mode <mode>` switches the session's mode. `/acp-option <option> <value>` sets one option — a model, an effort, a speed — by id or by name, with `true`/`false` for a boolean one; without a value it shows the option as it stands. A switch reaches the agent through `session/set_mode` or `session/set_config_option` and is refused when the agent does not offer it.
 
 ## Configuration
 
@@ -55,6 +68,8 @@ The row registers three commands for the sessions it drives. `/acp` shows the ex
 | `args` | a known agent's, else `[]` | Arguments passed to `command`. |
 | `env` | `{}` | Environment variables added on top of the subprocess seam's scrubbed parent environment. |
 | `credentialEnv` | `{}` | Environment variable → credential reference. Each reference is resolved through the credentials service at every start and handed to the agent as that variable, so no key is written into the preset. |
+| `agents` | none | Named agents this row can drive, each an object with the seven keys above. A session picks one with `/acp-agent`. Not together with a top-level `agent` or `command`. |
+| `default` | the first entry of `agents` | The agent a session runs until the person picks another. |
 | `cwd` | each session's workspace | Working directory of the external process and its session. A relative path resolves against the harness launch directory at load. |
 | `protocol` | `1` | ACP version requested at the handshake: `1`, or `2` with a v1 fallback. |
 | `authMethod` | the agent's first | Id of the sign-in method this row completes when the agent demands sign-in. |
@@ -70,9 +85,24 @@ The row registers three commands for the sessions it drives. `/acp` shows the ex
     permission: ask
 ```
 
+```yaml
+- id: agent-acp
+  name: '@deepseek-ai/dsh-agent-acp'
+  config:
+    agents:
+      claude:
+        agent: claude-acp
+      codex:
+        agent: codex-acp
+        credentialEnv:
+          OPENAI_API_KEY: OPENAI_API_KEY
+    default: claude
+    permission: ask
+```
+
 ## Process lifetime
 
-The external process starts at the first step and serves every later turn of that agent. It is reaped when the agent's scope unwinds, and a process that exits on its own is replaced by a fresh one at the next turn. Its stderr stays on the harness's own stderr; the addresses it prints during a sign-in are read from it on the way.
+The external process starts at the first step and serves every later turn of that agent. It is reaped when the agent's scope unwinds, when the person switches to another agent, and a process that exits on its own is replaced by a fresh one at the next turn. Its stderr stays on the harness's own stderr; the addresses it prints during a sign-in are read from it on the way.
 
 The package has no default export. Cordis loader unwrapping would otherwise hide the named `inject` metadata; see [postmortem 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
 
@@ -82,7 +112,7 @@ The package has no default export. Cordis loader unwrapping would otherwise hide
 
 #### What the model sees
 
-Only the text the person wrote, as the prompt of the external agent's turn. Context that harness plugins inject into the session log is not forwarded: the external agent owns its context. A person's message without text sends the placeholder `(no text content)`.
+The text and the images the person wrote, in their order, as the prompt of the external agent's turn. Context that harness plugins inject into the session log is not forwarded: the external agent owns its context. A person's message without text and without a forwarded image sends the placeholder `(no text content)`.
 
 #### Token effect
 
@@ -90,15 +120,13 @@ The external agent pays for its own context under its own account; nothing from 
 
 #### KV Cache effect
 
-Independent of every harness request cache. Reuse depends on the external agent's provider and on the text it received, which this driver passes through unchanged.
+Independent of every harness request cache. Reuse depends on the external agent's provider and on the content it received, which this driver passes through unchanged.
 
 ## Known Limitations and Deferred Work
 
-- **Only person-written text is forwarded** — attachments stay in the harness log and never reach the external agent.
-- **Tool results carry text only** — a call's `content` items contribute their text and nothing else; a call that reported none falls back to its title.
-- **Images and audio from the agent are dropped** — only text and thought chunks are written; non-text output needs an attachment reference this driver cannot mint.
-- **A reopened session keeps the title it had** — the agent's later title changes are applied only while the session still carries a generated one, because an applied title is stored as an explicit rename, which a person's own rename also is.
-- **A plan kept as a document is not shown** — a `plan_update` whose content is Markdown has no todo list to show; only an entry list is.
-- **One external agent per preset** — choosing among several at session creation needs a preset copy per agent.
+- **An agent's streamed images follow its text** — the text of a segment is one block, and the images it streamed come after it, whatever order they arrived in; images a tool call reported keep their place in that call's result.
+- **Audio is not carried in either direction** — the harness stores no audio attachment, and the client sends no audio block.
+- **A document plan is shown as its text** — the notice carries the document verbatim; it is not rendered as Markdown, and its checkboxes do not feed the todo list.
+- **The agent's choice is kept for the harness process** — a switch made after the last message is not remembered across a restart, and the session-creation dialogs offer no agent picker; `/acp-agent` is the switch.
 - **The `todos` list has one unit** — a composition that mounts the todo tool must leave this row's list out, and the other way round.
 - **No attachment, filesystem, terminal, or MCP passthrough** — the client advertises none of these capabilities, so the agent reads and writes its own process's files.

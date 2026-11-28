@@ -112,9 +112,41 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'acp/session': AcpSessionEventData
 ```
 
-Source: [`packages/acp/agent-acp/src/session.ts:36`](../packages/acp/agent-acp/src/session.ts)
+Source: [`packages/acp/agent-acp/src/session.ts:43`](../packages/acp/agent-acp/src/session.ts)
+
+<a id="acptitle--log-only"></a>
+
+#### `acp/title` — log-only
+
+```ts persistence-catalog
+/**
+ * A title the external agent gave the session, written right after the
+ * rename that applied it. The latest event in the session's own log names
+ * the standing title that is the agent's rather than the person's.
+ * Log-only.
+ */
+'acp/title': AcpTitleEventData
+```
+
+Source: [`packages/acp/agent-acp/src/session.ts:50`](../packages/acp/agent-acp/src/session.ts)
 
 ### `agent/*`
+
+<a id="agentcontext--log-only"></a>
+
+#### `agent/context` — log-only
+
+```ts persistence-catalog
+/**
+ * The latest context-window accounting a step driver reported for its own
+ * context. Whole-value record, latest wins on replay. The token meter's
+ * occupancy reading and a person reading the log consume it; nothing
+ * derives model-visible history from it. Log-only.
+ */
+'agent/context': AgentContextEventData
+```
+
+来源：[`packages/core/agent/src/types.ts:54`](../packages/core/agent/src/types.ts)
 
 <a id="agentinboxspliced--log-only"></a>
 
@@ -135,7 +167,7 @@ Source: [`packages/acp/agent-acp/src/session.ts:36`](../packages/acp/agent-acp/s
 }
 ```
 
-来源：[`packages/core/agent/src/types.ts:19`](../packages/core/agent/src/types.ts)
+来源：[`packages/core/agent/src/types.ts:41`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 

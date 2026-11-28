@@ -8,6 +8,11 @@
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
 
+- id: attachments
+  name: '@deepseek-ai/dsh-attachment-local'
+  config:
+    dshHome: !!js "process.cwd() + '/home'"
+
 - id: agent-presets
   name: '@deepseek-ai/dsh-agent-presets'
   config:

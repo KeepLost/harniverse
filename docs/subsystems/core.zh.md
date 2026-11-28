@@ -217,7 +217,7 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有�
 
 Source: [`packages/core/agent/src/machine.ts`](../../packages/core/agent/src/machine.ts)
 
-`AgentMachine` 是工厂的每个驱动器都在其上运行的 `Agent`。它拥有收件箱、阶段状态机、取消、维护以及回合：打开回合、领取输入、让 `agent/pre-step` 决定、把进入的消息追加为 `user/message`，并关闭每个步骤与回合。步骤内部发生的事属于 `StepDriver`，由生命周期拥有者在发布之前一次性封存：[`agent-loop`](../../packages/core/agent-loop/README.md) 提供模型循环作为默认驱动器，[`acp/agent-acp`](../../packages/acp/agent-acp/README.md) 通过一行预设提供外部 ACP agent。
+`AgentMachine` 是工厂的每个驱动器都在其上运行的 `Agent`。它拥有收件箱、阶段状态机、取消、维护以及回合：打开回合、领取输入、让 `agent/pre-step` 决定、把进入的消息追加为 `user/message`，并关闭每个步骤与回合。步骤内部发生的事属于 `StepDriver`，由生命周期拥有者在发布之前一次性封存：[`agent-loop`](../../packages/core/agent-loop/README.md) 提供模型循环作为默认驱动器，[`acp/agent-acp`](../../packages/acp/agent-acp/README.md) 通过一行预设提供外部 ACP agent。保留自己上下文的驱动器把它的计量报告为只记入日志的 `agent/context` 记录；模型循环把自己的计量报告在 `assistant/message` 上，不写这条记录。
 
 ```ts type-equiv
 /** How a step can end on its own: the driver owes nothing further for this turn. */

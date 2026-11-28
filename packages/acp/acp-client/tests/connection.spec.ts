@@ -435,6 +435,40 @@ describe('capability gating', () => {
     await connection.dispose()
   })
 
+  it('sends an image block to an agent that advertised image prompts, in the order it was given', async () => {
+    const { connect, received } = harness(capable)
+    const connection = await connect()
+    const turn = (await connection.newSession()).prompt([
+      { type: 'text', text: 'what is on this screen?' },
+      { type: 'image', data: 'AAAA', mimeType: 'image/png' },
+    ])
+    expect(await turn.end).toEqual({ stopReason: 'end_turn' })
+    expect(received.at(-1)).toEqual({
+      method: 'session/prompt',
+      params: {
+        sessionId: 'session-1',
+        prompt: [
+          { type: 'text', text: 'what is on this screen?' },
+          { type: 'image', data: 'AAAA', mimeType: 'image/png' },
+        ],
+      },
+    })
+    await connection.dispose()
+  })
+
+  it('refuses an image block before anything is sent when the agent did not advertise image prompts', async () => {
+    const { connect, received } = harness({})
+    const connection = await connect()
+    const session = await connection.newSession()
+    const turn = session.prompt([{ type: 'image', data: 'AAAA', mimeType: 'image/png' }])
+    await expect(turn.end).rejects.toMatchObject({ kind: 'unsupported', message: 'the agent did not advertise image prompts' })
+    expect(await drain(turn.updates)).toEqual([])
+    // Nothing reached the agent, and the session is free for a prompt it can take.
+    expect(received.map(entry => entry.method)).toEqual(['initialize', 'session/new'])
+    expect(await session.prompt([{ type: 'text', text: 'text only' }]).end).toEqual({ stopReason: 'end_turn' })
+    await connection.dispose()
+  })
+
   it('reads the v1 advertisement shapes and forwards the operations', async () => {
     const { connect, received } = harness(capable)
     const connection = await connect()

@@ -96,27 +96,16 @@ Requires: `agents` · `subprocess`
 
 ```ts config-catalog
 /** Config: how to start and sign in to the external agent, and how to answer its requests. */
-export interface Config {
+export interface Config extends AgentConfig {
   /**
-   * A known external agent: one of `claude-acp`, `codex-acp`, `gemini`, or
-   * `antigravity-acp`. It fills in `command` and `args` the row leaves unset.
+   * Named external agents this row can drive, each with the launch fields the
+   * top level carries for one agent. A session runs `default` until the person
+   * picks another with `/acp-agent`, and a reopened session continues with the
+   * one it last talked to. Not together with a top-level `agent` or `command`.
    */
-  agent?: string
-  /** Executable that serves the external ACP agent over stdio. Required unless `agent` names a known one. */
-  command?: string
-  /**
-   * Arguments passed to {@link command}; a known agent's own when `agent`
-   * names one and this is left unset or `null`.
-   */
-  args?: string[] | null
-  /** Environment variables added on top of the subprocess seam's scrubbed parent environment. */
-  env: Record<string, string>
-  /**
-   * Environment variable → credential reference. Each reference is resolved
-   * through the credentials service at every start and handed to the agent as
-   * that variable, so no key is written into this file.
-   */
-  credentialEnv: Record<string, string>
+  agents?: Record<string, AgentConfig>
+  /** The entry of `agents` a session runs until the person picks another; the first entry when omitted. */
+  default?: string
   /**
    * Working directory of the external process and of its session. Must be
    * non-empty; a relative path resolves against the harness launch directory
@@ -124,14 +113,6 @@ export interface Config {
    * one from a session that has no workspace fails.
    */
   cwd?: string
-  /** ACP version requested at the handshake: `1`, the stable protocol, or `2`, the Preview protocol with a v1 fallback. */
-  protocol?: AcpProtocol
-  /**
-   * Id of the sign-in method this row completes when the agent demands
-   * sign-in. Absent, the first agent-driven method the agent advertises is
-   * completed, and the first terminal one when it advertises none.
-   */
-  authMethod?: string
   /**
    * Whether a reopened harness session reattaches to the external session
    * its own log records. `false` opens a fresh external session at every
@@ -147,13 +128,45 @@ export interface Config {
   permission: AcpPermissionMode
 }
 
+/** The launch fields of one external agent. */
+export interface AgentConfig {
+  /**
+   * A known external agent: one of `claude-acp`, `codex-acp`, `gemini`, or
+   * `antigravity-acp`. It fills in `command` and `args` the entry leaves unset.
+   */
+  agent?: string
+  /** Executable that serves the external ACP agent over stdio. Required unless `agent` names a known one. */
+  command?: string
+  /**
+   * Arguments passed to {@link AgentConfig.command}; a known agent's own when
+   * `agent` names one and this is left unset or `null`.
+   */
+  args?: string[] | null
+  /** Environment variables added on top of the subprocess seam's scrubbed parent environment. */
+  env?: Record<string, string>
+  /**
+   * Environment variable → credential reference. Each reference is resolved
+   * through the credentials service at every start and handed to the agent as
+   * that variable, so no key is written into this file.
+   */
+  credentialEnv?: Record<string, string>
+  /** ACP version requested at the handshake: `1`, the stable protocol, or `2`, the Preview protocol with a v1 fallback. */
+  protocol?: AcpProtocol
+  /**
+   * Id of the sign-in method this entry completes when the agent demands
+   * sign-in. Absent, the first agent-driven method the agent advertises is
+   * completed, and the first terminal one when it advertises none.
+   */
+  authMethod?: string
+}
+
 /** How the driver answers the external agent's permission requests. */
 export type AcpPermissionMode = 'ask' | 'allow' | 'reject'
 ```
 
 Depends on: [`AcpProtocol`](../packages/acp/acp-client/src/index.ts)
 
-Source: [`packages/acp/agent-acp/src/index.ts:47`](../packages/acp/agent-acp/src/index.ts)
+Source: [`packages/acp/agent-acp/src/index.ts:81`](../packages/acp/agent-acp/src/index.ts)
 
 <a id="deepseek-aidsh-agent-default-model"></a>
 

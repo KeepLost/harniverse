@@ -12,7 +12,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { KNOWN_AGENTS, knownAgent } from '@deepseek-ai/dsh-acp-client'
 import type {
-  AcpAgentDefinition,
   AcpProtocol,
   AcpQuestionAnswer,
   AcpQuestionAnswerer,
@@ -31,11 +30,11 @@ import type {} from '@deepseek-ai/dsh-user-questions'
 import type { AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions/types'
 import type { UserQuestionService } from '@deepseek-ai/dsh-user-questions'
 import { registerCommands } from './commands.ts'
-import { AcpStepDriver, permissionAnswerer, type AcpPermissionMode } from './driver.ts'
+import { AcpStepDriver, permissionAnswerer, type AcpLaunch, type AcpPermissionMode, type LaunchDefinition } from './driver.ts'
 import { installPlanProjection } from './plan.ts'
 
-export type { AcpDriverOptions, AcpDriverView, AcpPermissionMode } from './driver.ts'
-export type { AcpSessionEventData } from './session.ts'
+export type { AcpDriverOptions, AcpDriverView, AcpLaunch, AcpPermissionMode, LaunchDefinition } from './driver.ts'
+export type { AcpSessionEventData, AcpTitleEventData } from './session.ts'
 
 export const name = 'agent-acp'
 export const inject = ['agents', 'subprocess']
@@ -43,28 +42,52 @@ export const inject = ['agents', 'subprocess']
 /** The known agents `agent` may name. */
 const KNOWN_IDS = KNOWN_AGENTS.map(agent => agent.id).join(', ')
 
-/** Config: how to start and sign in to the external agent, and how to answer its requests. */
-export interface Config {
+/** The name of the one agent a row without `agents` drives; it is never shown. */
+const SINGLE = 'default'
+
+/** The launch fields of one external agent. */
+export interface AgentConfig {
   /**
    * A known external agent: one of `claude-acp`, `codex-acp`, `gemini`, or
-   * `antigravity-acp`. It fills in `command` and `args` the row leaves unset.
+   * `antigravity-acp`. It fills in `command` and `args` the entry leaves unset.
    */
   agent?: string
   /** Executable that serves the external ACP agent over stdio. Required unless `agent` names a known one. */
   command?: string
   /**
-   * Arguments passed to {@link command}; a known agent's own when `agent`
-   * names one and this is left unset or `null`.
+   * Arguments passed to {@link AgentConfig.command}; a known agent's own when
+   * `agent` names one and this is left unset or `null`.
    */
   args?: string[] | null
   /** Environment variables added on top of the subprocess seam's scrubbed parent environment. */
-  env: Record<string, string>
+  env?: Record<string, string>
   /**
    * Environment variable → credential reference. Each reference is resolved
    * through the credentials service at every start and handed to the agent as
    * that variable, so no key is written into this file.
    */
-  credentialEnv: Record<string, string>
+  credentialEnv?: Record<string, string>
+  /** ACP version requested at the handshake: `1`, the stable protocol, or `2`, the Preview protocol with a v1 fallback. */
+  protocol?: AcpProtocol
+  /**
+   * Id of the sign-in method this entry completes when the agent demands
+   * sign-in. Absent, the first agent-driven method the agent advertises is
+   * completed, and the first terminal one when it advertises none.
+   */
+  authMethod?: string
+}
+
+/** Config: how to start and sign in to the external agent, and how to answer its requests. */
+export interface Config extends AgentConfig {
+  /**
+   * Named external agents this row can drive, each with the launch fields the
+   * top level carries for one agent. A session runs `default` until the person
+   * picks another with `/acp-agent`, and a reopened session continues with the
+   * one it last talked to. Not together with a top-level `agent` or `command`.
+   */
+  agents?: Record<string, AgentConfig>
+  /** The entry of `agents` a session runs until the person picks another; the first entry when omitted. */
+  default?: string
   /**
    * Working directory of the external process and of its session. Must be
    * non-empty; a relative path resolves against the harness launch directory
@@ -72,14 +95,6 @@ export interface Config {
    * one from a session that has no workspace fails.
    */
   cwd?: string
-  /** ACP version requested at the handshake: `1`, the stable protocol, or `2`, the Preview protocol with a v1 fallback. */
-  protocol?: AcpProtocol
-  /**
-   * Id of the sign-in method this row completes when the agent demands
-   * sign-in. Absent, the first agent-driven method the agent advertises is
-   * completed, and the first terminal one when it advertises none.
-   */
-  authMethod?: string
   /**
    * Whether a reopened harness session reattaches to the external session
    * its own log records. `false` opens a fresh external session at every
@@ -95,23 +110,52 @@ export interface Config {
   permission: AcpPermissionMode
 }
 
-export const Config: z<Config> = z.object({
+/** The launch fields of one agent under `agents`, with the defaults the top level applies to its own. */
+const agentFields = {
   agent: z.string(),
   command: z.string(),
   // A bare array would materialize as empty, which cannot be told from an omitted one.
   args: z.union([z.array(z.string()), z.const(null)]),
   env: z.dict(z.string()).default({}),
   credentialEnv: z.dict(z.string()).default({}),
-  cwd: z.string(),
   protocol: z.number().default(1),
   authMethod: z.string(),
+}
+
+export const Config: z<Config> = z.object({
+  // The seven launch keys repeat `agentFields` plainly: the config catalog reads literal keys only.
+  agent: z.string(),
+  command: z.string(),
+  args: z.union([z.array(z.string()), z.const(null)]),
+  env: z.dict(z.string()).default({}),
+  credentialEnv: z.dict(z.string()).default({}),
+  protocol: z.number().default(1),
+  authMethod: z.string(),
+  agents: z.dict(z.object(agentFields)),
+  default: z.string(),
+  cwd: z.string(),
   resume: z.boolean().default(true),
   permission: z.union(['ask', 'allow', 'reject'] as const).default('ask'),
 }) as z<Config>
 
-/** The shape after schemastery applied the defaults. */
+/** One agent's launch fields once schemastery applied the defaults. */
+type ResolvedAgent = AgentConfig & Required<Pick<AgentConfig, 'env' | 'credentialEnv' | 'protocol'>>
+
+/** What resolving one agent's launch needs of its fields. */
+type LaunchFields = AgentConfig & Required<Pick<AgentConfig, 'env' | 'protocol'>>
+
+/** The shape after schemastery applied the defaults; an omitted `agents` is an empty one. */
 type ResolvedConfig = Required<Pick<Config, 'env' | 'credentialEnv' | 'protocol' | 'permission' | 'resume'>>
-  & Pick<Config, 'agent' | 'command' | 'cwd' | 'authMethod'> & { args: string[] | null | undefined }
+  & Pick<Config, 'agent' | 'command' | 'cwd' | 'authMethod' | 'default'> & {
+    args: string[] | null | undefined
+    agents: Record<string, ResolvedAgent>
+  }
+
+/** One agent the row resolved, with the credential references its start resolves. */
+interface ResolvedLaunch extends AcpLaunch {
+  /** Environment variable → credential reference. */
+  readonly credentials: Record<string, string>
+}
 
 /**
  * Reject a protocol version this client cannot request.
@@ -138,12 +182,12 @@ function resolveCwd(cwd: string | undefined): string | undefined {
 }
 
 /**
- * Resolve how the external agent is launched: a known agent fills in what the
- * row leaves unset.
- * @param config - the resolved configuration.
- * @returns the agent definition every driven session starts.
+ * Resolve how one external agent is launched: a known agent fills in what the
+ * entry leaves unset.
+ * @param config - the launch fields of one entry, defaults applied.
+ * @returns the agent definition every driven session starts for it.
  */
-function launchOf(config: ResolvedConfig): AcpAgentDefinition {
+function launchOf(config: LaunchFields): LaunchDefinition {
   const known = config.agent === undefined ? undefined : knownAgent(config.agent)
   if (config.agent !== undefined && known === undefined) {
     throw new Error(`agent-acp: no known agent is named "${config.agent}" (known: ${KNOWN_IDS})`)
@@ -152,6 +196,7 @@ function launchOf(config: ResolvedConfig): AcpAgentDefinition {
   if (command === undefined || command === '') {
     throw new Error(`agent-acp: config command is required, or name a known agent with agent (${KNOWN_IDS})`)
   }
+  assertProtocol(config.protocol)
   const { authMethod, protocol, env } = config
   return {
     command,
@@ -160,6 +205,50 @@ function launchOf(config: ResolvedConfig): AcpAgentDefinition {
     protocol,
     ...authMethod === undefined ? {} : { authMethod },
   }
+}
+
+/**
+ * Resolve every agent the row can drive: the entries named under `agents`, or
+ * the one the top level describes. Naming both is a misconfiguration, as is a
+ * `default` that names no entry. The agent a session runs until the person
+ * picks another is `default`, else the first entry.
+ * @param config - the resolved configuration.
+ * @returns one launch per agent, in configuration order, and the name of the default.
+ */
+function launchesOf(config: ResolvedConfig): { readonly launches: readonly ResolvedLaunch[]; readonly defaultAgent: string } {
+  // schemastery materializes an omitted dict as an empty one, so an empty `agents` is the single form.
+  const entries = Object.entries(config.agents)
+  if (entries.length === 0) {
+    const { agent, command, args, authMethod } = config
+    return {
+      launches: [{
+        name: SINGLE,
+        definition: launchOf({
+          env: config.env,
+          protocol: config.protocol,
+          ...agent === undefined ? {} : { agent },
+          ...command === undefined ? {} : { command },
+          ...args === undefined ? {} : { args },
+          ...authMethod === undefined ? {} : { authMethod },
+        }),
+        credentials: config.credentialEnv,
+      }],
+      defaultAgent: SINGLE,
+    }
+  }
+  if (config.agent !== undefined || config.command !== undefined) {
+    throw new Error('agent-acp: name several agents under agents, or configure one at the top level, not both')
+  }
+  const launches: ResolvedLaunch[] = []
+  let first = ''
+  for (const [name, entry] of entries) {
+    if (first === '') first = name
+    launches.push({ name, definition: launchOf(entry), credentials: entry.credentialEnv })
+  }
+  if (config.default !== undefined && config.agents[config.default] === undefined) {
+    throw new Error(`agent-acp: default names no entry of agents: "${config.default}" (named: ${launches.map(launch => launch.name).join(', ')})`)
+  }
+  return { launches, defaultAgent: config.default ?? first }
 }
 
 /**
@@ -312,8 +401,12 @@ function terminalSignIn(questions: UserQuestionService, host: AgentHost): NonNul
 export function apply(ctx: Context, config: Config): void {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
-  assertProtocol(resolved.protocol)
-  const definition = launchOf(resolved)
+  const { launches, defaultAgent } = launchesOf(resolved)
+  const agents: readonly AcpLaunch[] = launches.map((launch) => {
+    const resolveEnv = credentialResolver(ctx, launch.credentials)
+    const { credentials: _bound, definition } = launch
+    return resolveEnv === undefined ? { name: launch.name, definition } : { name: launch.name, definition, resolveEnv }
+  })
   const subprocess = ctx.subprocess
   const cwd = resolveCwd(resolved.cwd)
   installPlanProjection(ctx)
@@ -323,15 +416,12 @@ export function apply(ctx: Context, config: Config): void {
     // sign-in names, in the turn's failure, the program to run outside.
     const questions = host.ownerCtx.get('userQuestions')
     const driver = new AcpStepDriver(host, {
-      definition,
+      agents,
+      defaultAgent,
       cwd,
       spawn: spec => subprocess.spawn(spec),
       permission: permissionAnswerer(resolved.permission, host),
       ...questions === undefined ? {} : { questions: questionAnswerer(questions, host), terminalSignIn: terminalSignIn(questions, host) },
-      ...(() => {
-        const resolveEnv = credentialResolver(ctx, resolved.credentialEnv)
-        return resolveEnv === undefined ? {} : { resolveEnv }
-      })(),
       resume: resolved.resume,
     })
     drivers.set(host.id, driver)

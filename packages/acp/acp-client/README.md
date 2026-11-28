@@ -42,7 +42,7 @@ The client advertises an optional client capability only when the consumer provi
 
 A connection hosts any number of sessions. `newSession()` opens one in the connection's working directory; `resumeSession()`, `listSessions()`, and `closeSession()` are available only when the agent advertised them and otherwise reject with an `AcpError` of kind `unsupported`. A v2 agent owes all three without advertising them.
 
-`session.prompt(blocks, { signal })` starts one turn and returns its `updates` and its `end`. A session runs one turn at a time: a second prompt while a turn is active rejects. Aborting `signal` ends the turn on this client's side at once, as `cancelled`, and sends `session/cancel`; the next prompt waits until the agent is quiet, so a cancelled turn's late updates never reach the one that follows. When the agent process exits, the active turn rejects with a transport error and later work refuses.
+`session.prompt(blocks, { signal })` starts one turn and returns its `updates` and its `end`. A session runs one turn at a time: a second prompt while a turn is active rejects. A block the agent's handshake did not admit — an image without the `image` prompt capability — ends the turn with an `AcpError` of kind `unsupported` before anything is sent. Aborting `signal` ends the turn on this client's side at once, as `cancelled`, and sends `session/cancel`; the next prompt waits until the agent is quiet, so a cancelled turn's late updates never reach the one that follows. When the agent process exits, the active turn rejects with a transport error and later work refuses.
 
 A session also carries what the agent offered for it: `modes`, `configOptions`, and `commands`, as last reported. `setMode(modeId)` switches the mode and `setConfigOption(configId, value)` sets one option; each reaches the agent, replaces what the session reports, and rejects when the agent refuses. A session that reported none can be switched nowhere.
 
@@ -56,8 +56,9 @@ Every `session/update` arrives as one `AcpUpdate`, in arrival order. A variant t
 | `message`, `thought` | A whole-message upsert (v2). |
 | `tool-call` | A patch on one tool call: an absent field leaves it unchanged, `null` clears it. |
 | `plan` | The agent's plan entries, whole, and the plan's id when the agent keeps several. |
+| `plan-document` | A plan the agent keeps as a document: its whole text, the plan's id, and the file it lives in when the agent named one. |
 | `plan-removed` | The id of a plan the agent dropped. |
-| `usage` | Context-window accounting the agent reported. |
+| `usage` | Context-window accounting the agent reported: the tokens in use, the window size, and the session cost once it carried both of its fields. |
 | `session-info` | The session title and update time the agent reported. |
 | `notice` | A notice for the person. |
 | `mode` | The mode now in effect. |
@@ -100,8 +101,7 @@ This library registers no harness model context. It decides only what crosses th
 
 ## Known Limitations and Deferred Work
 
-- **Prompts are text** — `AcpPromptBlock` carries `text` only; image, audio, and embedded-context prompts need the capability-gated shapes this client does not build.
+- **Audio and embedded-context prompts are not built** — `AcpPromptBlock` carries `text` and `image`; the other capability-gated prompt shapes have no consumer yet.
 - **No external session memory** — nothing here records an agent session id across connections; a consumer that needs to reattach stores the id itself and calls `resumeSession`.
-- **A document plan is not read** — a `plan_update` whose content is Markdown arrives as `other`.
 - **Only stdio** — the Streamable HTTP and WebSocket transports are drafts in the protocol and have no binding here.
 - **No profile is registered** — the four known agents needed no request rewrite when they were run; a profile is the place for one that does.
