@@ -35,4 +35,6 @@
 {"type":"turn/end","seq":33,"time":1785730696686,"data":{"turn":2,"reason":{"kind":"completed"}}}
 {"type":"turn/start","seq":34,"time":1785821409110,"data":{"turn":3}}
 {"type":"agent/inbox/spliced","seq":35,"time":1785821409110,"data":{"target":"next-turn","start":0,"removedCount":1,"inserted":[]}}
-{"type":"turn/end","seq":36,"time":1785821409122,"data":{"turn":3,"reason":{"kind":"error","error":{"message":"snapshot disk full","code":"UNKNOWN"}}}}
+{"type":"agent/inbox/spliced","seq":36,"time":1785821409122,"data":{"target":"next-turn","start":0,"inserted":[{"content":[{"type":"text","text":"Now reply with exactly THIRD_OK."}],"source":{"kind":"coordinator","form":"relay","senderSessionId":"11111111-1111-4111-8111-111111111111"},"role":"user","id":"755c76db-6ee8-432d-a2d0-f8a3b7914e08"}]}}
+{"type":"turn/end","seq":37,"time":1785821409122,"data":{"turn":3,"reason":{"kind":"error","error":{"message":"snapshot disk full","code":"UNKNOWN"}}}}
+{"type":"agent/inbox/spliced","seq":38,"time":1785821409122,"data":{"target":"next-turn","start":0,"removedCount":1,"inserted":[],"outcome":"canceled"}}
