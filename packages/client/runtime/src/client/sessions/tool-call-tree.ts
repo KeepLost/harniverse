@@ -26,7 +26,8 @@ function sameReferences<T>(
  * recursive Tool call contract exposed by conversation snapshots.
  */
 export class ToolCallTree {
-  private readonly childrenByParent = new Map<string, readonly ToolCallBlock[]>()
+  /** Children of each parent by child call id, in first-attachment order; mutated in place. */
+  private readonly childrenByParent = new Map<string, Map<string, ToolCallBlock>>()
   private readonly depthByCall = new Map<string, number>()
   private readonly projectedByCall = new Map<string, ProjectedBlock>()
   private revision = 0
@@ -57,6 +58,8 @@ export class ToolCallTree {
   apply(event: SessionEvent): boolean {
     if (event.type === 'tool/code-dispatch-start') {
       const data = event.data
+      const siblings = this.childrenByParent.get(data.parentCallId)
+      if (siblings?.has(data.subCallId)) return true
       const running: RunningToolCall = {
         phase: 'start',
         callId: data.subCallId,
@@ -68,18 +71,15 @@ export class ToolCallTree {
         callView: null,
         subCalls: [],
       }
-      const siblings = this.childrenByParent.get(data.parentCallId) ?? []
       if (!this.acceptEdge(data.parentCallId, data.subCallId)) return true
-      this.childrenByParent.set(data.parentCallId, [...siblings, running])
+      this.attach(data.parentCallId, running)
       this.revision++
       return true
     }
     if (event.type !== 'tool/code-dispatch') return false
     const data = event.data
-    const siblings = this.childrenByParent.get(data.parentCallId) ?? []
-    const at = siblings.findIndex(sub => sub.callId === data.subCallId)
-    if (at === -1 && !this.acceptEdge(data.parentCallId, data.subCallId)) return true
-    const started = at === -1 ? undefined : siblings[at]
+    const started = this.childrenByParent.get(data.parentCallId)?.get(data.subCallId)
+    if (started === undefined && !this.acceptEdge(data.parentCallId, data.subCallId)) return true
     const settled: ToolResultNode = {
       kind: 'tool-result',
       seq: event.seq,
@@ -93,12 +93,7 @@ export class ToolCallTree {
       resultView: null,
       subCalls: [],
     }
-    this.childrenByParent.set(
-      data.parentCallId,
-      at === -1
-        ? [...siblings, settled]
-        : siblings.map((sub, index) => index === at ? settled : sub),
-    )
+    this.attach(data.parentCallId, settled)
     this.revision++
     return true
   }
@@ -137,7 +132,8 @@ export class ToolCallTree {
   }
 
   private projectBlock(block: ToolCallBlock): ToolCallBlock {
-    const children = this.childrenByParent.get(block.callId) ?? block.subCalls
+    const attached = this.childrenByParent.get(block.callId)
+    const children = attached === undefined ? block.subCalls : [...attached.values()]
     const projectedChildren = children.map(child => this.projectBlock(child))
     const childValue = sameReferences(children, projectedChildren)
       ? children
@@ -176,7 +172,7 @@ export class ToolCallTree {
       if (candidate.depth <= knownDepth) continue
       if (candidate.depth > MAX_TOOL_CALL_TREE_DEPTH) return false
       updates.set(candidate.callId, candidate.depth)
-      for (const child of this.childrenByParent.get(candidate.callId) ?? []) {
+      for (const child of this.childrenByParent.get(candidate.callId)?.values() ?? []) {
         pending.push({ callId: child.callId, depth: candidate.depth + 1 })
       }
     }
@@ -184,12 +180,22 @@ export class ToolCallTree {
     return true
   }
 
+  /** Record one child under its parent, keeping first-attachment order on replacement. */
+  private attach(parentCallId: string, child: ToolCallBlock): void {
+    let siblings = this.childrenByParent.get(parentCallId)
+    if (siblings === undefined) {
+      siblings = new Map()
+      this.childrenByParent.set(parentCallId, siblings)
+    }
+    siblings.set(child.callId, child)
+  }
+
   private wouldCreateCycle(parentCallId: string, subCallId: string): boolean {
     if (parentCallId === subCallId) return true
     const pending = [subCallId]
     const visited = new Set(pending)
     for (const callId of pending) {
-      for (const child of this.childrenByParent.get(callId) ?? []) {
+      for (const child of this.childrenByParent.get(callId)?.values() ?? []) {
         if (child.callId === parentCallId) return true
         if (visited.has(child.callId)) continue
         visited.add(child.callId)

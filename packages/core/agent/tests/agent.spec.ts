@@ -156,6 +156,79 @@ describe('Inbox', () => {
     inbox.clear()
     expect(session.events).toHaveLength(beforeClear + 2)
   })
+
+  it('returns a claim whose step never opened, unless the batch is settled or was discarded', () => {
+    const session = Session.create(SessionId('return-inbox'))
+    const inserted: UserMessage[] = []
+    const inbox = new Inbox(session, {
+      claimed: () => {},
+      discarded: () => {},
+      inserted: message => void inserted.push(message),
+    })
+    const prompt = createUserMessage({ content: [{ type: 'text', text: 'prompt' }], source: { kind: 'user' } })
+    const steer = createUserMessage({ content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' } })
+    inbox.append('next-turn', prompt)
+    inbox.append('next-step', steer)
+    inserted.length = 0
+
+    expect(inbox.claim('next-turn', 1)).toEqual([steer, prompt])
+    inbox.returnClaims()
+    expect(inbox.nextTurn).toEqual([steer, prompt])
+    expect(inbox.nextStep).toEqual([])
+    expect(inserted).toEqual([steer, prompt])
+
+    // A claim takes one queued turn, and a step that opened settles its batch.
+    expect(inbox.claim('next-turn', 2)).toEqual([steer])
+    inbox.settle(session.append('step/start', { turn: 2, step: 1 }))
+    inbox.returnClaims()
+    expect(inbox.nextTurn).toEqual([prompt])
+
+    expect(inbox.claim('next-turn', 3)).toEqual([prompt])
+    inbox.clear()
+    inbox.returnClaims()
+    expect(inbox.hasPending).toBe(false)
+  })
+
+  it('rebuilds the claim record from the log and returns only the claim an interrupted turn left', () => {
+    const notifications = { claimed: () => {}, discarded: () => {}, inserted: () => {} }
+    const prompt = createUserMessage({ content: [{ type: 'text', text: 'prompt' }], source: { kind: 'user' } })
+    const interrupted = Session.create(SessionId('interrupted-claim'))
+    interrupted.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [prompt] })
+    interrupted.append('turn/start', { turn: 1 })
+    interrupted.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] })
+    interrupted.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
+    const restored = new Inbox(interrupted, notifications)
+    expect(restored.hasPending).toBe(false)
+
+    restored.restoreInterrupted()
+    expect(restored.nextTurn).toEqual([prompt])
+    // A repeated restore never queues a returned claim twice.
+    restored.restoreInterrupted()
+    expect(restored.nextTurn).toEqual([prompt])
+    // Cancelling the returned claim drops it from the record.
+    expect(restored.remove(prompt.id)).toBe(true)
+    restored.restoreInterrupted()
+    expect(restored.hasPending).toBe(false)
+
+    const settled = Session.create(SessionId('settled-claim'))
+    settled.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [prompt] })
+    settled.append('turn/start', { turn: 1 })
+    settled.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] })
+    settled.append('step/start', { turn: 1, step: 1 })
+    settled.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
+    const afterStep = new Inbox(settled, notifications)
+    afterStep.restoreInterrupted()
+    expect(afterStep.hasPending).toBe(false)
+
+    const failed = Session.create(SessionId('failed-claim'))
+    failed.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [prompt] })
+    failed.append('turn/start', { turn: 1 })
+    failed.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] })
+    failed.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } } })
+    const afterFailure = new Inbox(failed, notifications)
+    afterFailure.restoreInterrupted()
+    expect(afterFailure.hasPending).toBe(false)
+  })
 })
 
 describe('AgentRegistry', () => {

@@ -117,6 +117,40 @@ function toolResult(callId: string, text: string) {
   }
 }
 
+/** A fan-out wide enough that a per-event sibling scan or copy costs seconds; the linear fold takes a fraction of a second. */
+const WIDE_FAN_OUT = 20_000
+/** Wall-clock ceiling for folding and publishing the wide fan-out. */
+const WIDE_FAN_OUT_BUDGET_MS = 5_000
+
+const dispatch = (
+  seq: number,
+  type: string,
+  parentCallId: string,
+  subCallId: string,
+  text?: string,
+) => at(seq, type, {
+  rootCallId: 'root', parentCallId, subCallId, name: 'read', arguments: { path: subCallId },
+  ...text === undefined ? {} : { isError: false, content: [{ type: 'text', text }] },
+})
+
+/** One root Code call followed by `width` settled sub-calls and the root result. */
+function wideFanOut(width: number): ConversationEventInput[] {
+  const events: ConversationEventInput[] = [
+    at(1, 'turn/start', { turn: 1 }),
+    at(2, 'step/start', { turn: 1, step: 1 }),
+    at(3, 'tool/call', { turn: 1, step: 1, callId: 'root', name: 'code', arguments: '{}' }),
+  ]
+  for (let index = 0; index < width; index++) {
+    events.push(dispatch(4 + index * 2, 'tool/code-dispatch-start', 'root', `call-${index}`))
+    events.push(dispatch(5 + index * 2, 'tool/code-dispatch', 'root', `call-${index}`, 'done'))
+  }
+  events.push(at(4 + width * 2, 'tool/result', {
+    turn: 1, step: 1, message: toolResult('root', 'root done'),
+  }, { surfaceOp: 'append' }))
+  events.push(at(5 + width * 2, 'step/end', { turn: 1, step: 1 }))
+  return events
+}
+
 describe('built-in conversation node Definitions', () => {
   it('keeps one keyed Assistant node while streaming settles and materializes interruption from Location', () => {
     const value = assembler([
@@ -577,6 +611,65 @@ describe('built-in conversation node Definitions', () => {
     const withSecondChild = node(snapshot(history), 'tool-call')
     expect((withSecondChild?.data as ToolChatData).root.subCalls[0]).toBe(firstChild)
   })
+
+  it('keeps first-attachment order, rejects repeated starts, cycles, and reparenting, and adopts detached subtrees', () => {
+    const current = snapshot(assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'tool/call', { turn: 1, step: 1, callId: 'root', name: 'code', arguments: '{}' }),
+      dispatch(4, 'tool/code-dispatch-start', 'root', 'a'),
+      dispatch(5, 'tool/code-dispatch-start', 'root', 'b'),
+      dispatch(6, 'tool/code-dispatch-start', 'root', 'a'),
+      dispatch(7, 'tool/code-dispatch', 'root', 'b', 'b settled'),
+      dispatch(8, 'tool/code-dispatch', 'root', 'a', 'a first'),
+      dispatch(9, 'tool/code-dispatch', 'root', 'a', 'a second'),
+      dispatch(10, 'tool/code-dispatch-start', 'a', 'c'),
+      dispatch(11, 'tool/code-dispatch-start', 'c', 'a'),
+      dispatch(12, 'tool/code-dispatch-start', 'b', 'c'),
+      dispatch(13, 'tool/code-dispatch', 'c', 'c', 'self'),
+      dispatch(14, 'tool/code-dispatch', 'detached', 'd', 'adopted'),
+      dispatch(15, 'tool/code-dispatch-start', 'root', 'a'),
+      dispatch(16, 'tool/code-dispatch-start', 'c', 'root'),
+      dispatch(17, 'tool/code-dispatch-start', 'b', 'detached'),
+      at(18, 'step/end', { turn: 1, step: 1 }),
+    ]))
+
+    expect((node(current, 'tool-call')?.data as ToolChatData).root).toMatchObject({
+      callId: 'root',
+      error: { name: 'Interrupted', code: 'interrupted' },
+      subCalls: [
+        {
+          kind: 'tool-result', callId: 'a', content: [{ type: 'text', text: 'a second' }],
+          subCalls: [{
+            kind: 'tool-result', callId: 'c', callTime: 1_700_000_000_010,
+            error: { name: 'Interrupted', code: 'interrupted' }, subCalls: [],
+          }],
+        },
+        {
+          kind: 'tool-result', callId: 'b', content: [{ type: 'text', text: 'b settled' }],
+          subCalls: [{
+            kind: 'tool-result', callId: 'detached',
+            error: { name: 'Interrupted', code: 'interrupted' },
+            subCalls: [{ kind: 'tool-result', callId: 'd', content: [{ type: 'text', text: 'adopted' }] }],
+          }],
+        },
+      ],
+    })
+  })
+
+  it('folds and publishes a wide Code Dispatch fan-out inside its budget', () => {
+    const started = performance.now()
+    const current = snapshot(assembler(wideFanOut(WIDE_FAN_OUT)))
+    const elapsedMs = performance.now() - started
+
+    const tool = node(current, 'tool-call')
+    expect(tool?.key).toBeDefined()
+    const subCalls = (tool?.data as ToolChatData).root.subCalls
+    expect(subCalls).toHaveLength(WIDE_FAN_OUT)
+    expect(subCalls.slice(0, 3).map(subCall => subCall.callId)).toEqual(['call-0', 'call-1', 'call-2'])
+    expect(subCalls.at(-1)?.callId).toBe(`call-${WIDE_FAN_OUT - 1}`)
+    expect(elapsedMs, `folded ${WIDE_FAN_OUT} dispatches in ${Math.round(elapsedMs)} ms`).toBeLessThan(WIDE_FAN_OUT_BUDGET_MS)
+  }, 60_000)
 
   it('prepends an older turn without replacing already materialized nodes', () => {
     const value = assembler([

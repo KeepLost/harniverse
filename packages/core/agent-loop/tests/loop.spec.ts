@@ -430,8 +430,8 @@ describe('agent loop', () => {
     expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('second idle steer')
   })
 
-  it('stops after a throwing pre-step listener and retains later steering until a wakeup', async () => {
-    const adapter = new MockAdapter([textResponse('recovered')])
+  it('stops after a throwing pre-step listener and runs the returned prompt with later steering on the next wakeup', async () => {
+    const adapter = new MockAdapter([textResponse('recovered'), textResponse('resumed')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('failed-steering'), { provider: 'mock', model: 'mock' })
     let fail = true
@@ -448,14 +448,16 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(agent.session.events.filter(event => event.type === 'turn/end')).toHaveLength(1)
+    expect(agent.inbox.nextTurn.map(message => message.content[0])).toEqual([{ type: 'text', text: 'prompt' }])
     expect(agent.inbox.nextStep).toHaveLength(1)
 
     send(agent, 'resume')
     await waitForIdle(ctx, agent)
 
-    expect(adapter.requests).toHaveLength(1)
-    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(3)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('pending steering')
+    expect(userTexts(agent)).toEqual(['pending steering', 'prompt', 'resume'])
   })
 
   it('inject() while idle durably stages context without opening a turn', async () => {
@@ -732,7 +734,7 @@ describe('agent loop', () => {
   })
 
   it('a throwing agent/pre-step listener fails the proposal, not the loop', async () => {
-    const adapter = new MockAdapter([textResponse('second turn ok')])
+    const adapter = new MockAdapter([textResponse('returned prompt ok'), textResponse('second turn ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
@@ -755,10 +757,11 @@ describe('agent loop', () => {
     expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(true)
     expect(agent.session.events.some(event => event.type === 'turn/end')).toBe(true)
 
-    // The loop survived: a second prompt runs a normal completed turn.
+    // The loop survived: the returned proposal and the second prompt each run a completed turn.
     send(agent, 'second')
     await waitForIdle(ctx, agent)
-    expect(adapter.requests.length).toBe(1)
+    expect(adapter.requests.length).toBe(2)
+    expect(userTexts(agent)).toEqual(['first', 'second'])
     const lastTurnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
     expect(lastTurnEnd?.type === 'turn/end' && lastTurnEnd.data.reason).toEqual({ kind: 'completed' })
   })

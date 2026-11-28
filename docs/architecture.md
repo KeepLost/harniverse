@@ -81,7 +81,7 @@ turn/end
 
 `turn/*`, `step/*`, `user/message`, `assistant/*`, and `tool/*` are durable session events; the rest are live extension points across three domains. `agent/pre-step`, `agent/request`, `llm/stream`, and the four transformable `tools/*` events are waterfalls, whose listeners must call `next()` to delegate; `agent/turn-stopping` is serial and has no `next()`.
 
-Input reaches the driver through one inbox. Some messages wake it immediately; injected context waits in the inbox until another message does.
+Input reaches the driver through one inbox. Some messages wake it immediately; injected context waits in the inbox until another message does. A batch claimed for a step that never opens returns to the head of `next-turn` when the turn fails before `step/start`, and on resume when an interrupted process left the turn open; it runs at the next wake.
 
 `agent/pre-step` decides what the model sees. Listeners may rewrite the claimed messages or reject them outright; a rejected or empty first claim still closes a durable turn that spent no step, so the log records the attempt. Each step reads the prompt sections and tool schemas that plugins registered; `dsh-context-snapshot` prepends a due runtime-context snapshot ahead of the claimed input here.
 

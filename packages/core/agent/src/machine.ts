@@ -401,7 +401,7 @@ export class AgentMachine implements Agent {
           return false
         }
         signal.throwIfAborted()
-        this.session.append('step/start', { turn, step })
+        this.inbox.settle(this.session.append('step/start', { turn, step }))
         phase.step = step
         const toolRecovery = new ToolCallRecovery()
         const stopRecovery = this.ctx.on('session/event', (session, event) => {
@@ -448,23 +448,30 @@ export class AgentMachine implements Agent {
     } catch (error: unknown) {
       // A cause is present exactly while the signal is aborted.
       const cause = abortedCancelCause(signal)
-      if (cause !== undefined) {
-        turnEnds = { kind: 'aborted', reason: cause }
-        throw error
-      }
       // Every failure is structured: an `LlmError` keeps its facts, anything
       // else flattens to `errorChain` text under the `UNKNOWN` code.
-      turnEnds = {
-        kind: 'error',
-        error: error instanceof LlmError
-          ? error.failure
-          : { message: errorChain(error), code: 'UNKNOWN' },
+      turnEnds = cause === undefined
+        ? {
+          kind: 'error',
+          error: error instanceof LlmError
+            ? error.failure
+            : { message: errorChain(error), code: 'UNKNOWN' },
+        }
+        : { kind: 'aborted', reason: cause }
+      // Before `turn/end` settles the claim, the inbox returns a batch whose step never opened.
+      try {
+        this.inbox.returnClaims()
+      } catch (returnError: unknown) {
+        // The driver boundary contains only reported failures; the original error is in `turn/end`.
+        this.throwError(returnError)
       }
+      if (cause !== undefined) throw error
       this.throwError(error)
     } finally {
       try {
         // oxlint-disable-next-line typescript/no-non-null-assertion -- every exit assigns a turn ending
-        this.session.append('turn/end', { turn, reason: turnEnds! })
+        const ended = this.session.append('turn/end', { turn, reason: turnEnds! })
+        this.inbox.settle(ended)
       } catch (error: unknown) {
         this.throwError(error)
       }

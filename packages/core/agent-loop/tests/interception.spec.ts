@@ -513,8 +513,8 @@ describe('agent/pre-step', () => {
     expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('secret')
   })
 
-  it('a throwing pre-step listener reports the driver error and retains adjacent work', async () => {
-    const adapter = new MockAdapter([textResponse('after')])
+  it('a throwing pre-step listener reports the driver error and returns the proposal ahead of adjacent work', async () => {
+    const adapter = new MockAdapter([textResponse('after'), textResponse('after')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
@@ -548,8 +548,18 @@ describe('agent/pre-step', () => {
     }])
     expect(statuses).toEqual(['running', 'idle'])
     expect(adapter.requests).toHaveLength(0)
+    // The failed proposal's input returns ahead of the work queued behind it.
     expect(agent.inbox.nextTurn.map(message => message.content[0]))
-      .toEqual([{ type: 'text', text: 'second' }])
+      .toEqual([{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }])
+
+    const resumed = waitForIdle(ctx, agent)
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' } }))
+    await resumed
+    expect(adapter.requests).toHaveLength(2)
+    const resumedLog = events(agent)
+    expect(resumedLog.filter(e => e.type === 'turn/start')).toHaveLength(3)
+    expect(resumedLog.filter(e => e.type === 'user/message').flatMap(e => e.type === 'user/message' ? e.data.content : [])
+      .flatMap(block => block.type === 'text' ? [block.text] : [])).toEqual(['steer', 'first', 'second'])
   })
 })
 

@@ -5,11 +5,17 @@
  */
 
 import type { MessageId } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
 import type { InboxTarget } from './types.ts'
 
 /** Mutable state privately owned by an {@link Inbox}. */
 type InboxState = Record<InboxTarget, UserMessage[]>
+
+/** Claims for an unopened step: the current batch, and the batch an interrupted turn left behind. */
+type InboxClaims = Record<'pending' | 'interrupted', UserMessage[]>
+
+/** A normalized durable inbox splice. */
+type InboxSplice = SessionEventMap['agent/inbox/spliced']
 
 /** Live notifications committed by inbox mutations. */
 export interface InboxNotifications {
@@ -21,18 +27,28 @@ export interface InboxNotifications {
   claimed(message: UserMessage, turn: number): void
 }
 
-/** A replay-once projection that incrementally consumes later inbox splices. */
+/**
+ * A replay-once projection that incrementally consumes later inbox splices.
+ * It also folds the claims a turn took for a step that never opened, so the
+ * inbox can return them when the turn fails or was interrupted.
+ */
 export class Inbox {
   private readonly state: InboxState = { 'next-turn': [], 'next-step': [] }
+  private readonly claims: InboxClaims = { pending: [], interrupted: [] }
+  /** Whether {@link clear} discarded the batch taken by the latest {@link claim}. */
+  private claimDiscarded = false
 
   constructor(
     private readonly session: Session,
     private readonly notifications: InboxNotifications,
   ) {
     for (const event of session.events.slice(session.header.seedLength ?? 0)) {
-      if (event.type !== 'agent/inbox/spliced') continue
+      if (event.type !== 'agent/inbox/spliced') {
+        this.settle(event)
+        continue
+      }
       try {
-        this.apply(event.data)
+        this.record(event.data, this.apply(event.data))
       } catch (error: unknown) {
         throw new Error(`invalid persisted inbox splice at session seq ${event.seq}`, { cause: error })
       }
@@ -56,6 +72,7 @@ export class Inbox {
 
   /** Durably cancel all pending input, clearing next-step before next-turn. */
   clear(): void {
+    this.claimDiscarded = true
     this.splice('next-step', 0, this.nextStep.length, [])
     this.splice('next-turn', 0, this.nextTurn.length, [])
   }
@@ -69,12 +86,60 @@ export class Inbox {
    * @internal - The agent loop's step-boundary operation, not a plugin extension point.
    */
   claim(target: InboxTarget, turn: number): UserMessage[] {
+    this.claimDiscarded = false
     const claimed = this.mutate('next-step', 0, this.nextStep.length, [], false)
     if (target === 'next-turn') {
       claimed.push(...this.mutate('next-turn', 0, 1, [], false))
     }
     for (const message of claimed) this.notifications.claimed(message, turn)
     return claimed
+  }
+
+  /**
+   * Return the batch claimed for an unopened step to the next-turn head when
+   * the turn ends before `step/start`, unless {@link clear} discarded it.
+   * Call before `turn/end` settles the claim.
+   * @throws when the Session refuses the return; the claim stays settled by `turn/end`.
+   * @internal - The agent loop's turn-failure operation, not a plugin extension point.
+   */
+  returnClaims(): void {
+    if (!this.claimDiscarded) this.returnClaim('pending')
+  }
+
+  /**
+   * Return the claim an interrupted turn left for an unopened step; a no-op
+   * after a turn that closed.
+   * @throws when the Session refuses the return.
+   * @internal - The agent factory's resume operation, not a plugin extension point.
+   */
+  restoreInterrupted(): void {
+    this.returnClaim('interrupted')
+  }
+
+  /**
+   * Settle the claim record at a durable boundary the machine appended:
+   * `step/start` settles the batch it opens, and `turn/end` settles the batch
+   * its turn took, keeping it only when the turn was interrupted. The
+   * constructor replays the same events, so a resumed agent reads what a live
+   * one wrote; a seeded session replays only its own events.
+   * @param event - `step/start` or `turn/end` event.
+   * @internal - The agent machine's boundary operation, not a plugin extension point.
+   */
+  settle(event: SessionEvent): void {
+    const { pending, interrupted } = this.claims
+    switch (event.type) {
+      case 'step/start':
+        pending.length = 0
+        break
+      case 'turn/end':
+        if (event.data.reason.kind === 'interrupted') interrupted.push(...pending)
+        else interrupted.length = 0
+        pending.length = 0
+        break
+      default:
+        // Other Session events leave the claim record unchanged.
+        break
+    }
   }
 
   /**
@@ -145,6 +210,14 @@ export class Inbox {
     return this.mutate(target, start, deleteCount, inserted, true)
   }
 
+  /** Prepend one claim list in order, skipping any occurrence already queued. */
+  private returnClaim(source: keyof InboxClaims): void {
+    const claims = this.claims[source]
+    if (claims.length === 0) return
+    const queued = new Set([...this.nextTurn, ...this.nextStep].map(message => message.id))
+    this.splice('next-turn', 0, 0, claims.filter(message => !queued.has(message.id)))
+  }
+
   /** Locate one pending identity across both owned lists. */
   private locate(messageId: MessageId): { target: InboxTarget; index: number } | undefined {
     for (const target of ['next-turn', 'next-step'] as const) {
@@ -152,6 +225,24 @@ export class Inbox {
       if (index >= 0) return { target, index }
     }
     return undefined
+  }
+
+  /**
+   * Fold one committed splice's removals into the claim record: a removal
+   * without an outcome is a claim, and a cancellation drops its identities
+   * from either claim list unless the same splice inserts them again.
+   */
+  private record(splice: InboxSplice, removed: readonly UserMessage[]): void {
+    if (removed.length === 0) return
+    const { pending, interrupted } = this.claims
+    if (splice.outcome !== 'canceled') {
+      pending.push(...removed)
+      return
+    }
+    const discarded = new Set(removed.map(message => message.id))
+    for (const message of splice.inserted) discarded.delete(message.id)
+    this.claims.pending = pending.filter(message => !discarded.has(message.id))
+    this.claims.interrupted = interrupted.filter(message => !discarded.has(message.id))
   }
 
   /** Commit one normalized mutation and publish its live notifications. */
@@ -175,7 +266,7 @@ export class Inbox {
     )
     if (actualDeleteCount === 0 && inserted.length === 0) return []
     const outcome = discardRemoved && actualDeleteCount > 0 ? 'canceled' as const : undefined
-    const splice = {
+    const splice: InboxSplice = {
       target,
       start: actualStart,
       ...(actualDeleteCount === 0 ? {} : { removedCount: actualDeleteCount }),
@@ -185,6 +276,7 @@ export class Inbox {
     this.validate(splice)
     const event = this.session.append('agent/inbox/spliced', splice)
     const removed = inbox.splice(actualStart, actualDeleteCount, ...event.data.inserted)
+    this.record(event.data, removed)
     if (discardRemoved) {
       for (const message of removed) this.notifications.discarded(message)
     }
@@ -193,14 +285,14 @@ export class Inbox {
   }
 
   /** Apply one normalized durable splice to the projection. */
-  private apply(splice: SessionEventMap['agent/inbox/spliced']): UserMessage[] {
+  private apply(splice: InboxSplice): UserMessage[] {
     this.validate(splice)
     const inbox = this.state[splice.target]
     return inbox.splice(splice.start, splice.removedCount ?? 0, ...splice.inserted)
   }
 
   /** Validate one normalized splice against the current projection. */
-  private validate(splice: SessionEventMap['agent/inbox/spliced']): void {
+  private validate(splice: InboxSplice): void {
     const inbox = this.state[splice.target]
     const removedCount = splice.removedCount ?? 0
     if (!Number.isSafeInteger(splice.start) || splice.start < 0 || splice.start > inbox.length

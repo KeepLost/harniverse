@@ -523,7 +523,7 @@ describe('context-snapshot', () => {
 
   it('fails the turn on a strict-variable render failure and keeps serving turns', async () => {
     // A missing cwd variable must fail one turn without preventing a later valid turn.
-    const adapter = new MockAdapter([textResponse('ok after rescue')])
+    const adapter = new MockAdapter([textResponse('ok after rescue'), textResponse('ok after rescue')])
     const ctx = await harness(adapter, 'In {{cwd}}.')
     await ctx.plugin(ContextSnapshot)
     const errors: Error[] = []
@@ -542,8 +542,8 @@ describe('context-snapshot', () => {
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
 
-    // The loop survived: a waterfall listener rescues {{cwd}} and the SAME
-    // agent completes a real model turn.
+    // The loop survived: a waterfall listener rescues {{cwd}}, and the SAME
+    // agent completes a real model turn for the returned prompt and the next one.
     ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
       assembly.variables['cwd'] = '/rescued'
       return next()
@@ -551,11 +551,11 @@ describe('context-snapshot', () => {
     send(agent, 'again')
     await waitForIdle(ctx, agent)
 
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(2)
     expect(ownedTexts(agent)).toEqual([`${COMPLETE}\n\nIn /rescued.`])
     const turnEnds = agent.session.events.filter(e => e.type === 'turn/end')
-    expect(turnEnds).toHaveLength(2)
-    expect(turnEnds[1]?.type === 'turn/end' && turnEnds[1].data.reason.kind).toBe('completed')
+    expect(turnEnds).toHaveLength(3)
+    expect(turnEnds[2]?.type === 'turn/end' && turnEnds[2].data.reason.kind).toBe('completed')
   })
 
   it('returns a rejected step decision without publishing', async () => {
