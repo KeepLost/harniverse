@@ -8,6 +8,8 @@ import type { DesktopShell, OwnedDesktopHost } from './main.ts'
 
 /** One smoke lifecycle step's total budget; the outer driver kill stays the last resort. */
 const STEP_BUDGET_MS = 100_000
+/** Total budget for every attempt of one authenticated-API probe; a single attempt is bounded shorter. */
+const PROBE_DEADLINE_MS = 30_000
 
 /**
  * Settle one named lifecycle step within its budget. An unattended clean
@@ -33,6 +35,27 @@ export async function boundedSmokeStep<T>(step: string, budgetMs: number, action
     ])
   }
   finally { clearTimeout(timer) }
+}
+
+/**
+ * Answer one renderer probe, re-issuing it while the frame cannot answer. An
+ * `executeJavaScript` issued into a frame that is navigating, reloading, or
+ * still busy with its own start-up never answers, and that silence says
+ * nothing about the application; only an answered probe does. Each attempt is
+ * bounded by its caller, so the loop ends at the deadline.
+ * @param deadlineMs - total budget for every attempt.
+ * @param attempt - one bounded probe; resolution to `undefined` means "not answerable right now".
+ * @returns the first answered value.
+ * @throws when no attempt answered before the deadline.
+ */
+export async function answeredRendererProbe<T>(deadlineMs: number, attempt: () => Promise<T | undefined>): Promise<T> {
+  const deadline = Date.now() + deadlineMs
+  do {
+    const result = await attempt()
+    if (result !== undefined) return result
+    await delay(50)
+  } while (Date.now() < deadline)
+  throw new Error('The authenticated renderer probe did not answer within its budget.')
 }
 
 /** Return the explicit receipt destination only when both smoke opt-ins are present. */
@@ -183,20 +206,27 @@ export class DesktopCleanInstallSmoke {
   }
 
   private async authenticatedApi(): Promise<void> {
-    const result = await this.probeRenderer(`(async () => {
-      const status = await fetch('/auth/status');
-      const authentication = await status.json();
-      const response = await fetch('/api/session.list', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'client-request', method: 'session.list', rpcId: 'desktop-smoke', payload: {} })
-      });
-      const body = await response.json();
-      return authentication.mode === 'authenticated' && authentication.authenticated === true
-        && response.status === 200 && body.rpcId === 'desktop-smoke' && body.result?.ok === true
-        && Array.isArray(body.result.value?.items);
-    })()`, 10_000)
-    if (result === undefined) throw new Error('The authenticated renderer probe did not answer within its budget.')
-    if (result !== true) throw new Error('The normal authenticated HTTP session.list request failed.')
+    let attempts = 0
+    const result = await answeredRendererProbe(PROBE_DEADLINE_MS, async () => {
+      attempts += 1
+      const answer = await this.probeRenderer<boolean>(`(async () => {
+        const status = await fetch('/auth/status');
+        const authentication = await status.json();
+        const response = await fetch('/api/session.list', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'client-request', method: 'session.list', rpcId: 'desktop-smoke', payload: {} })
+        });
+        const body = await response.json();
+        return authentication.mode === 'authenticated' && authentication.authenticated === true
+          && response.status === 200 && body.rpcId === 'desktop-smoke' && body.result?.ok === true
+          && Array.isArray(body.result.value?.items);
+      })()`, 10_000)
+      if (answer === undefined) {
+        console.log(`clean-install smoke: authenticated renderer probe ${String(attempts)} unanswered; main frame loading=${String(onlyWindow().webContents.isLoadingMainFrame())}`)
+      }
+      return answer
+    })
+    if (!result) throw new Error('The normal authenticated HTTP session.list request failed.')
   }
 
   /** Exercise clean startup, persisted device reuse, close/hide, reopen, and ordinary idle Quit. */

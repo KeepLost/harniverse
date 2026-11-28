@@ -7,6 +7,8 @@ export class EntryGroup {
   static readonly key = Symbol.for('cordis.group')
 
   public data: EntryOptions[] = []
+  /** Teardown in flight for entries this group removed, by id, each kept until it settles. */
+  private readonly retiring = new Map<string, Promise<void>>()
 
   constructor(public ctx: Context, public tree: EntryTree) {
     const entry = ctx.fiber.entry
@@ -17,8 +19,18 @@ export class EntryGroup {
     return this.ctx
   }
 
+  /**
+   * Create an entry, or re-create one under an id this group removed. The
+   * re-created entry starts only after the removed entry's fiber finished
+   * unloading, so a resource the previous instance releases in its disposers
+   * is free when the next one looks for it.
+   * @param options - Entry options; an explicit `id` addresses the re-created entry.
+   * @returns the entry id.
+   */
   async create(options: Omit<EntryOptions, 'id'>) {
     const id = this.tree.ensureId(options)
+    const retiring = this.retiring.get(id)
+    if (retiring !== undefined) await retiring
     const entry: Entry = this.tree.store[id] ??= new Entry(this.ctx.loader)
     // Entry may be moved from another group,
     // so we need to update the parent reference.
@@ -39,11 +51,21 @@ export class EntryGroup {
     if (!entry || entry.parent !== this) return
     // Unregister before disposal so Loader can distinguish removal from self-disposal.
     delete this.tree.store[id]
-    entry.fiber?.dispose()
+    const disposal = entry.fiber?.dispose()
+    if (disposal !== undefined) this.retire(id, disposal)
     if (!isDispose) {
       this.unlink(entry.options)
     }
     this.context.emit('loader/partial-dispose', entry, entry.options, false)
+  }
+
+  private retire(id: string, disposal: Promise<void>): void {
+    // A failed teardown is already logged by Core; it must not fail the re-created entry.
+    const settled = disposal.then(() => {}, () => {})
+    this.retiring.set(id, settled)
+    void settled.then(() => {
+      if (this.retiring.get(id) === settled) this.retiring.delete(id)
+    })
   }
 
   async update(config: EntryOptions[]) {
