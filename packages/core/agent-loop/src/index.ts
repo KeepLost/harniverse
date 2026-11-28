@@ -605,6 +605,9 @@ export class AgentLoop extends Service implements AgentFactory {
           detachAgent = loopCtx.agents.enter(agent, ownerCtx.agent, dispose, closeIfIdle)
           agent.ctx.sessions.announce(session)
           assertLive()
+          // Writes are open after announce; a fresh Session holds no interrupted claim.
+          agent.inbox.restoreInterrupted()
+          assertLive()
           loopCtx.agents.announce(agent)
           assertLive()
           // A synchronous announce/session-start listener may have started

@@ -7,7 +7,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Plugin } from '@deepseek-ai/cordis'
 import { createAssistantMessage, createUserMessage, LlmError } from '@deepseek-ai/dsh-llm'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
-import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   type AgentHost,
   type PreStepDecision,
@@ -40,6 +40,7 @@ async function driven(
     prep: string,
   ) => Promise<{ kind: 'completed' | 'max-tokens' } | null | undefined>,
   preStep?: (position: StepPosition) => Promise<PreStepDecision>,
+  prepare?: (position: StepPosition, host: AgentHost) => Promise<string>,
 ): Promise<Driven> {
   const session = ctx.sessions.create(SessionId('driven'))
   const machine = new AgentMachine(ctx, SessionId('driven'), {}, session)
@@ -57,7 +58,7 @@ async function driven(
   machine.seal(host => ({
     async prepare(position) {
       positions.push(`prepare ${position.turn}:${position.step}`)
-      return `prep-${position.step}`
+      return prepare === undefined ? `prep-${position.step}` : prepare(position, host)
     },
     async run(position, prep) {
       positions.push(`run ${position.turn}:${position.step} ${prep} signal-aborted=${position.signal.aborted}`)
@@ -156,6 +157,96 @@ describe('AgentMachine', () => {
     })
     expect(events.at(-1)).toMatchObject({ data: { reason: { kind: 'aborted', reason: { kind: 'hook', reason: 'policy' } } } })
     expect(machine.status).toBe('idle')
+  })
+
+  it('returns the claimed batch to the next-turn head when its step never opens', async () => {
+    const ctx = await harness()
+    const { events, errors, positions, machine } = await driven(ctx, async () => ({ kind: 'completed' }), undefined,
+      async () => { throw new Error('prompt assembly failed') })
+
+    expect(positions).toEqual(['prepare 1:1'])
+    expect(errors).toEqual([new Error('prompt assembly failed')])
+    expect(types(events)).toEqual(['turn/start', 'turn/end'])
+    expect(events.at(-1)).toMatchObject({
+      data: { reason: { kind: 'error', error: { message: 'prompt assembly failed', code: 'UNKNOWN' } } },
+    })
+    expect(machine.inbox.nextTurn.map(message => message.content)).toEqual([[{ type: 'text', text: 'go' }]])
+    expect(machine.inbox.nextStep).toEqual([])
+    expect(machine.status).toBe('idle')
+  })
+
+  it('runs a returned batch first on the next wake', async () => {
+    const ctx = await harness()
+    let failing = true
+    const { events, machine } = await driven(ctx, async () => ({ kind: 'completed' }), undefined, async () => {
+      if (failing) throw new Error('prompt assembly failed')
+      return 'prep'
+    })
+    expect(machine.inbox.nextTurn.map(message => message.content)).toEqual([[{ type: 'text', text: 'go' }]])
+
+    failing = false
+    machine.followup(createUserMessage({ content: [{ type: 'text', text: 'second' }], source: { kind: 'user' } }))
+    await machine.whenIdle()
+
+    expect(events.filter(event => event.type === 'user/message').map(event => event.data.content)).toEqual([
+      [{ type: 'text', text: 'go' }],
+      [{ type: 'text', text: 'second' }],
+    ])
+    expect(events.filter(event => event.type === 'turn/start')).toHaveLength(3)
+    expect(machine.inbox.hasPending).toBe(false)
+  })
+
+  it('keeps the batch settled once its step has opened', async () => {
+    const ctx = await harness()
+    const { machine } = await driven(ctx, async () => { throw new Error('driver failed') })
+
+    expect(machine.inbox.hasPending).toBe(false)
+  })
+
+  it('reports a refused return and still closes the turn with the original failure', async () => {
+    const ctx = await harness()
+    const id = SessionId('detached')
+    let session!: Session
+    const owner = await ctx.plugin(Object.assign((inner: Context) => {
+      session = inner.sessions.create(id)
+    }, { inject: ['sessions'] }))
+    const machine = new AgentMachine(ctx, id, {}, session)
+    const errors: unknown[] = []
+    ctx.on('agent/error', ({ error }) => { errors.push(error) })
+    machine.seal(() => ({
+      // A store-owned Session refuses appends once its owning fiber is gone.
+      prepare: async () => { await owner.dispose(); throw new Error('prompt assembly failed') },
+      run: async () => ({ kind: 'completed' }),
+    }))
+
+    machine.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await machine.whenIdle()
+
+    const refused = new Error('session "detached" cannot append outside a SessionStore')
+    expect(errors).toEqual([refused, refused])
+    expect(machine.status).toBe('idle')
+  })
+
+  it('returns the batch on a Stop that keeps the inbox and discards it on a Stop that clears it', async () => {
+    const aborted = { data: { reason: { kind: 'aborted', reason: { kind: 'user' } } } }
+    const kept = await driven(await harness(), async () => ({ kind: 'completed' }), undefined, async (position, host) => {
+      host.agent.cancel({ kind: 'user' }, { keepInbox: true })
+      position.signal.throwIfAborted()
+      return 'prep'
+    })
+    expect(kept.positions).toEqual(['prepare 1:1'])
+    expect(types(kept.events)).toEqual(['turn/start', 'turn/end'])
+    expect(kept.events.at(-1)).toMatchObject(aborted)
+    expect(kept.machine.inbox.nextTurn.map(message => message.content)).toEqual([[{ type: 'text', text: 'go' }]])
+    expect(kept.machine.status).toBe('idle')
+
+    const cleared = await driven(await harness(), async () => ({ kind: 'completed' }), undefined, async (position, host) => {
+      host.agent.cancel({ kind: 'user' })
+      position.signal.throwIfAborted()
+      return 'prep'
+    })
+    expect(cleared.events.at(-1)).toMatchObject(aborted)
+    expect(cleared.machine.inbox.hasPending).toBe(false)
   })
 })
 
