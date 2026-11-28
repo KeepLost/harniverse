@@ -77,6 +77,10 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(options).toContain('minimax-cn')
     await pick.selectOption('minimax-cn')
     await dialog.getByRole('textbox', { name: 'API 密钥', exact: true }).waitFor({ timeout: 10_000 })
+    // The env-credential hint under the field reads "not confirmed" until its
+    // detection lands, and two equal frames cannot tell that state from a
+    // settled one under CI load.
+    await dialog.getByText('未检测到环境变量。请填写 API 密钥，或设置环境变量 MINIMAX_CN_API_KEY。').waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(EMPTY_EXPECTED, snapshot, MODE)
   }, 60_000)

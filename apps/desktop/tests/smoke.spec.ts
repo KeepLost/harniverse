@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ app: {}, BrowserWindow: {} }))
-import { smokeReportPath, assertEmptyCommandPath, rendererReady, boundedSmokeStep } from '../src/smoke.ts'
+import { smokeReportPath, assertEmptyCommandPath, rendererReady, boundedSmokeStep, answeredRendererProbe } from '../src/smoke.ts'
 
 const temporary: string[] = []
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }) })
@@ -53,6 +53,26 @@ it('keeps a step that settles inside its budget and its own rejection intact', a
     expect(value).toBe('ready')
     await expect(boundedSmokeStep('connect', 1000, () => Promise.reject(new Error('shell refused')))).rejects.toThrow('shell refused')
     expect(vi.getTimerCount()).toBe(0)
+  }
+  finally { vi.useRealTimers() }
+})
+
+it('re-issues a renderer probe the frame did not answer until it answers, and takes a refusal at once', async () => {
+  const answers: Array<boolean | undefined> = [undefined, undefined, true]
+  const attempt = vi.fn(async () => answers.shift())
+  await expect(answeredRendererProbe(5_000, attempt)).resolves.toBe(true)
+  expect(attempt).toHaveBeenCalledTimes(3)
+  const refused = vi.fn(async () => false)
+  await expect(answeredRendererProbe(5_000, refused)).resolves.toBe(false)
+  expect(refused).toHaveBeenCalledOnce()
+})
+
+it('fails a renderer probe that no attempt answered before the deadline', async () => {
+  vi.useFakeTimers()
+  try {
+    const attempt = vi.fn(async () => { vi.advanceTimersByTime(10_000); return undefined })
+    await expect(answeredRendererProbe(25_000, attempt)).rejects.toThrow('did not answer within its budget')
+    expect(attempt).toHaveBeenCalledTimes(3)
   }
   finally { vi.useRealTimers() }
 })

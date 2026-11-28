@@ -64,7 +64,7 @@ Node module internals are classified by their available APIs, including the v1 A
 
 ## Update completion
 
-Entry updates await `loader/patch-context`, the Fiber update waterfall and disabled-entry disposal. Combined context/config changes refresh required bindings before restarting. Group and Include updates expose completion of their child updates; file persistence completes through Include’s `flush()`.
+Entry updates await `loader/patch-context`, the Fiber update waterfall and disabled-entry disposal. Combined context/config changes refresh required bindings before restarting. Group and Include updates expose completion of their child updates; file persistence completes through Include’s `flush()`. An entry created again under an id its group just removed starts after the removed Fiber finished unloading.
 
 ## Tree mutation reports
 
